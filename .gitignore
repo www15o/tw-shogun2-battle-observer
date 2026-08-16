@@ -1,0 +1,19 @@
+# 二进制/游戏资产（版权 + 体积，一律不入库）
+*.bin
+*.pack
+*.dll
+*.exe
+*.png
+*.jpg
+*.tga
+*.wav
+
+# 运行时产物
+__pycache__/
+*.pyc
+_elev_*.log
+captures/
+
+# 编辑器
+.vscode/
+.idea/
