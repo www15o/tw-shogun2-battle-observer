@@ -23,7 +23,7 @@ Empire.Retail.dll，faction 结构（vtable RVA 0x15fac30 / +0x6a0 human / +0x4f
   python -u tools/s2_watch.py --faction 伊达 --restore --cache # 缓存恢复（毫秒级，AI 过回合快时用）
   python -u tools/s2_watch.py --faction 伊达 --watch --recache # 强制重新定位（读档/重进后地址失效）
 
-缓存说明：--cache 首次扫描定位后把 faction/manager 写点存 work/.watch_cache.json；
+缓存说明：--cache 首次扫描定位后把 faction/manager 写点存 tools/.watch_cache.json；
 之后 --cache 直接读缓存毫秒级执行（适合 AI 过回合极快的场景）。地址失效（读档/重进）自动回退全扫。
 
 安全纪律（AGENTS）：写入前结构验证（vtable/human 字段/表结构），失败禁止写；写后回读确认。
@@ -146,7 +146,10 @@ def scan_objA(h, base, max_cands=5):
     （0xb4d274 扩容逻辑），旧 cap∈[40,100] 条件会漏真对象（FOTS 实机教训）；
     改为 cnt∈[30,120] + 表指针合法粗筛，再由 verify_manager_table 精筛
     （条目 key 是 faction vtable 或 key+0x164→faction）。"""
-    regions = pb.readable_regions(h)
+    # 2026-08-13 报告强调必须用 VirtualQueryEx 枚举（readable_regions_fast）；
+    # 试读法 readable_regions 会漏低地址/部分区域，实测读档后 campaign 对象所在区域
+    # 在试读法下缺失 → scan_objA 返回 0（GUI "manager 表未定位" 根因）。
+    regions = readable_regions_fast(h)
     found = []
     for rs, re in regions:
         if re - rs < 0x700:
