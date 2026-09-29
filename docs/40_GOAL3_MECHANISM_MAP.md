@@ -1,5 +1,11 @@
 # 40_GOAL3_MECHANISM_MAP — 目标3 进攻系统地图（机制链主题文档）
 
+> **公开库说明**：本库只收录 **目标1 / 目标2 / 目标3 + 写 b9 前过滤** 的机制地图与探索地图。
+> 修订日志（`12_GOAL1_LOGBOOK.md` / `22_GOAL2_LOGBOOK.md` / `62_GOAL3_1_LOGBOOK.md` / `Goal_3_LogBook.md`）
+> 与目标4（AI 行为 / 攻城）研究文档、以及部分内部报告**不在本库发布**。
+> 文中出现的 `work/` 路径与 `re_*_report.md` 指向作者私库工作目录，公开副本见 `reports/`。引用规则见 `docs/README.md`。
+
+
 > 目标：**真正在战役中加载 AI 部队之间的战斗**（观看 AI 内战）。
 > 本文件 = 目标3 的机制链地图（唯一现状依据）：按游戏机制顺序组织全部真实前沿成果。
 > 修订/证伪历史单独收录 `Goal_3_LogBook.md`——本文件不含任何修订文本，仅保留当前有效结论。
@@ -113,7 +119,7 @@ FUN_10872b60（AI 创建前置）→ FUN_108bd250（冲突列表 getter）→ FU
 - vtable 0x115fa8a4；重建 = FUN_106e9f60 → 构造器 FUN_10571520（param_5≠0，AI 内战用）/ FUN_10571950
 - 布局（+0x4c model 回指、+0x50 状态、**+0x58 btype（BATTLE_TYPE 枚举，★S15 定案 2026-08-19）**、+0x55 ready、**+0x60/+0x64 = 攻/守侧对象单指针（★S18 修正：非"参战方双列表"，是侧对象；0xc0B struct）+0xc=战斗 faction / +0x64=持久 faction（两池）**、+0xb8/+0xbc 参与者、+0xf8 player-setup）
 - **★+0x60/+0x64 侧对象（S18 定案，re_s18_wrapper_object_report.md）**：= 攻/守「侧对象」（0xc0B 普通 struct）：+0x00=core 引用（[attacker+0x160]；**探针误报的「vtable=0x3c0364d0 堆地址」= 数据字段误读，非动态装配**）；+0x08 起子对象（FUN_10574750 运行期 / FUN_10574910 存档）；+0xac=通用接口 vtable 0x115af7fc（17 槽族）；+0xb4/+0xb8/+0xbc={cap,size,data} 军队向量（AI 内战恒空）。写者全集 = 3 个 pending 构造器（FUN_10571520 @0x5718d4/57、10571950 @0x571e73/af、10572580 @0x57266e/71）+ 存档加载器 FUN_105727c0（FUN_105abf30 E8 调用者恰 6 处）。**★两槽两池**：**+0xc = 战斗 faction**（子对象 ctor FUN_10574750 @0x574779 写 getter(&attacker+0x254)；引擎 getter 0x15f080 读取；状态 10 双门 0x607900/0x607923 读 [faction+0x6a0]；⚠️ 存档路径 +0xc=0 @0x57492c）；**+0x64 = 持久 faction**（描述符 FUN_10574ef0 首字段 = getter(&attacker+0x25c)；re_faction_identity Q5 交叉：+0x254=战斗、+0x25c=持久）。**阵营筛选链（写 b9 前，零加载成本，S18 定案；2026-08-28 补双链回退）**：`[pending+0x60/64] → 侧对象 → [side+0x64]（持久）或 [side+0xc]（战斗回退）→ faction → vtable==0x15fac30`；白名单=任一方命中任一链即放行（OR），黑名单=任一方命中任一链即拦截；名字读取仅持久 faction 可靠（战斗 faction 名字=0/垃圾）
-- **+0x58 = BATTLE_TYPE 枚举**（int32，★S15）：0-2 野战（NORMAL/AMBUSH/BRIDGE）/ 3-10 攻城（FORT_*/FORTIFIED_*/UNFORTIFIED_SETTLEMENT/REGION_SLOT）/ **11-14 海战**（NAVAL_NORMAL/BLOCKADE_BREAKOUT/BLOCKADE_RELIEF/PORT_ASSAULT）/ 15=UNSPECIFIED（AI 构造器默认 0xf）。权威表 0x11794478（索引=值，getter 0x95b00）；判定函数 FUN_1069c7b0 返回值全集 {0..14} 精确吻合；构造写点 0x5715c9（=0xf）/ 0x5719f7（=param）；重建链 FUN_106e9f60 @0x6ea2b7 先算 btype → @0x6ea2f4 传构造器。**消费者按具体值分支**（战斗启动检查器 0x6060f0-0x606370 按 {4,5,7,8,9,10,12,13,14} 分支 + 0x606947 对 0xe + 攻城 0x59cfb1 对 6）+ 序列化器 0xc10337 用值索引名称表 = 引擎正式枚举铁证（详见 work/re_s15_battletype_report.md）。**→ E1 海战过滤 = 写 b9 前读 [pending+0x58]，11≤btype≤14 跳过（零加载成本）**
+- **+0x58 = BATTLE_TYPE 枚举**（int32，★S15）：0-2 野战（NORMAL/AMBUSH/BRIDGE）/ 3-10 攻城（FORT_*/FORTIFIED_*/UNFORTIFIED_SETTLEMENT/REGION_SLOT）/ **11-14 海战**（NAVAL_NORMAL/BLOCKADE_BREAKOUT/BLOCKADE_RELIEF/PORT_ASSAULT）/ 15=UNSPECIFIED（AI 构造器默认 0xf）。权威表 0x11794478（索引=值，getter 0x95b00）；判定函数 FUN_1069c7b0 返回值全集 {0..14} 精确吻合；构造写点 0x5715c9（=0xf）/ 0x5719f7（=param）；重建链 FUN_106e9f60 @0x6ea2b7 先算 btype → @0x6ea2f4 传构造器。**消费者按具体值分支**（战斗启动检查器 0x6060f0-0x606370 按 {4,5,7,8,9,10,12,13,14} 分支 + 0x606947 对 0xe + 攻城 0x59cfb1 对 6）+ 序列化器 0xc10337 用值索引名称表 = 引擎正式枚举铁证（详见 work/re_s15_battletype_report.md）。**→ 写 b9 前过滤应用见 `61_GOAL3_1_MECHANISM_MAP.md` §2（E1 海战/攻城/野战多范围 OR）**
 - **+0xb9 = AI 自动参战伪造位（★E2 定案 2026-08-19）**：ready==0 时 FUN_105caa60 读它（==1 → 返回 0 → 状态 4）。**引擎原生写者 = 3 个构造器**（FUN_10571520 @0x57191a / FUN_10571950 @0x571f30 / FUN_10572580 @0x572647）：`b9 = (RNG%101 <= N)`（条件 ready==0 且 N>0；RNG=FUN_103dfc50 LCG，状态 core+0x14f0；N=[[[attacker+0x160]+0x30]+0x20]，FUN_10571950 在 0x6a0cb0 判定非零时换 [B+0x24]）；**实机 vanilla AI 内战 N=0 → 原生写从不触发**（watch 日志新 pending 初始 b9 恒 0）；**构造后无任何覆盖者**（全 .text 确定性扫描：写者仅 3 构造器）。外部 b9 直写 = 把原生概率机制强制 100%（详见 work/re_e2_b9_persist_report.md）
 - **+0x78/+0x84 容器**（FUN_105c4700 登记写入）：{cap@+0, size@+0x7c, array@+0x80} / {cap@+0x84, size@+0x88, array@+0x8c}
 
@@ -366,12 +372,7 @@ CPU 149% = 忙等类型 6 任务完成；battle_mgr 未创建
 > - **下一步**：①复现场景走「自动结算」/「拒绝战斗」补全三路线对照 ②FOTS offer 链定位（界面触发函数）③FOTS faction 6a0 语义确认 ④vanilla 复测核对差异。
 > - **★★2026-08-19 b9=1 最小伪造完整闭环（原版看海态，目标1/2 近似达成）**：AI 内战 pending（武田 vs 村上）→ 写 `[pending+0xb9]=1`（1 字节）→ **fork 0 → 状态 4 → factory → envdisp → battle_mgr 创建 → 战斗场景完全加载**，battle_ai 无注入 = **原生 AI 实操双方**（用户控制台确认），稳定 1254s+。**目标1/2 近似实现**（武田=CAI 托管派系参战 + AI 实操）；**无天气窗口**（b9 路径绕过人类攻击创建链，目标1 独立报告 re_b9_goal1_handoff_20260819.md）。**目标3 待续**：issp=0（武田参战非旁观）→ 纯 AI 内战（武田不在场）+ b9 → 0x5cf168 自动旁观 = 目标3。**伪造支点定案**：分叉输入 [pending+0xb9]（非登记门控）——单字节直写 = 路线2 最小钥匙（v4 三字节+转换失败 vs b9 1 字节全通）。
 
-> **★2026-08-28 深夜补充（加载前“真实规模”校准）**：
-> - **后面的标准（POST，已确证）**：`battle_mgr=[base+0x1bc8180]` → `+0x110=env` → `[env+8]→[+0xb4]=st` → `[st+0x88]=gcnt / [st+0x8c]=gtbl` → 组 `[g+0x20]=acnt / [g+0x24]=atbl` → 军 `[army+0x114]`（FotS 回退 `+0x12c`）。实机已见 `totals=[7,4] sum=11`。
-> - **★2026-08-22 静态修正（替代旧 PRE 候选）**：`side+0x88..+0x94` 位于 nested sub-object，**不是单位数/军队向量**；side 真军队向量为 `+0xb4/+0xb8/+0xbc`，AI 内战中已知为空。旧 `arr0+arr1` 比较只是数组长度相加，判据无效。
-> - **当前 PRE 标准（规模代理）**：`FUN_106e9f60` 时 `model+0x149c → cmgr → node+8=campaign army(vtable RVA 0x1606a08) → army+0x294`；军队数=节点数，`+0x294` 只称规模代理，不能静态宣称精确单位数。
-> - **唯一身份键**：dispatcher `(model,param2,param3)` + pending + `side+0xc` battle faction + `side+0x64` persistent faction + btype；PRE/POST 必须按双方 persistent faction 指针一一配对，禁止 FIFO/名字 OR 猜配。
-> - **工具准入（未实机）**：`work/_probe_a1_calib.py` 已完成 profile gate、原子 ring、one-shot latch、事务恢复和独立离线审计；observe/oneshot 可用于一次性校准，**不得据此直接修改正式过滤器**。实验卡：`experiments/003_goal3_a1_calibration/README.md`。
+> **★Goal3.1 已拆分**：写 b9 前的规模/类型/阵营过滤机制、PRE 单位数数据源、POST 真值链、已排除结论，全部见 `61_GOAL3_1_MECHANISM_MAP.md`；历史见 `62_GOAL3_1_LOGBOOK.md`。本文不再混入 Goal3.1 细节。
 
 > **现状**：⬜→✅ **P6 注入核心机制已实机突破（2026-08-17，re_f7_p6_inject.py）**，但 **env 创建后崩（待 F10 根因）**：
 > - **★2026-08-17 晚 inject hook 迁移 v2（实机 9 轮钉死 U24 重写 4 层 stub bug，Goal_3_LogBook 08-17 大修节）**：
@@ -411,7 +412,7 @@ CPU 149% = 忙等类型 6 任务完成；battle_mgr 未创建
 
 ### 7.3 [达成后副作用] 旁观 ESC 结算机制（★S21，2026-08-22 静态定案，3K 对照）
 
-> 来源：docs/56_HANDOFF_3K_ESC_结算对照.md + work/re_s21_esc_settlement_report.md。
+> 来源：../../tw3k_ai_battle/docs/56_HANDOFF_3K_ESC_结算对照.md + work/re_s21_esc_settlement_report.md。
 > **一句话**：S2 战斗结束（ESC 退出 / 自然结束）**统一**走 `0x503ec0` 且传 **result-side=-1** → 自动判定胜方，**不依赖本地玩家方、不读 issp** → 旁观 ESC 攻城**静态推断正常结算**（实机待最终确认）。
 
 - **ESC/投降退出链**：BCQ_FACTION_QUIT_BATTLE → FUN_102a77b0 → **FUN_10172ca0**（写 [battle+0x23c4]=8）→ **0x503ec0**（压栈 arg5=-1）
@@ -430,7 +431,7 @@ CPU 149% = 忙等类型 6 任务完成；battle_mgr 未创建
 |---|---|---|---|
 | pending 状态机 | 0x604260 | FUN_10604260 | [共] |
 | 状态字段 | pending+0x50 | 写者 FUN_1057fca0 | [共] |
-| **★战斗类型字段 btype** | **pending+0x58**（int32 = BATTLE_TYPE 枚举） | **S15 定案 2026-08-19**：权威表 0x11794478（getter 0x95b00）/ 判定 FUN_1069c7b0（返回 {0..14}）/ 构造写点 0x5715c9(=0xf)、0x5719f7(=param) / 消费 0x6060f0-0x606370（值分支）+0x606947(0xe)+0x59cfb1(6) / 序列化 0xc10337；**E1 海战过滤：写 b9 前读它，11≤btype≤14 跳过** | [共] |
+| **★战斗类型字段 btype** | **pending+0x58**（int32 = BATTLE_TYPE 枚举） | **S15 定案 2026-08-19**：权威表 0x11794478（getter 0x95b00）/ 判定 FUN_1069c7b0（返回 {0..14}）/ 构造写点 0x5715c9(=0xf)、0x5719f7(=param) / 消费 0x6060f0-0x606370（值分支）+0x606947(0xe)+0x59cfb1(6) / 序列化 0xc10337；**写 b9 前过滤应用见 `61_GOAL3_1_MECHANISM_MAP.md` §2** | [共] |
 | **★b9 伪造位 + 原生写者** | **pending+0xb9** | **E2 定案 2026-08-19**：ready==0 时 ==1 → fork 返回 0 → 状态4；原生写者 = 3 构造器（0x57191a/0x571f30/0x572647，`b9 = RNG%101<=N`，RNG=FUN_103dfc50@0x3dfc50 LCG 状态 core+0x14f0，N=[[[attacker+0x160]+0x30]+0x20]）；实机 N=0 不触发；构造后无覆盖者 | [共] |
 | 状态 6 判定 | 0x6047c8 | ready 注入 @0x6047d1 | [共] |
 | 登记动作 | 0x5c4700 | FUN_105c4700（门控 human_flag \|\| faction+0x6a0） | [共] |
