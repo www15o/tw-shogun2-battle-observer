@@ -27,6 +27,7 @@ hook 点（原字节静态确认，2026-08-17 re_f10_confirm_design.md §2）：
 import os
 import struct
 import sys
+import tempfile
 
 # ───────────────────────── 共享常量（宿主观测脚本 import 本模块复用） ─────────────────────────
 IMAGE_BASE = 0x10000000
@@ -1102,7 +1103,7 @@ def dry_run_ring():
 def main():
     base = IMAGE_BASE
     region = 0x70000000                                   # 任意占位（安装时 = VirtualAllocEx 实际地址）
-    logpath = r"<REPO_DIR>\captures\h47a\f10_stub_wf.bin"
+    logpath = os.environ.get("S2_F10_STUB_LOG") or os.path.join(tempfile.gettempdir(), "f10_stub_wf.bin")
     stubs, init, veh, data, marker = build_all(region, base, logpath)
     layout_dump(stubs, init, veh, data, region)
     ok = validate(stubs, init, veh, region, base)

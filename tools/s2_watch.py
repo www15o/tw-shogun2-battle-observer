@@ -34,6 +34,7 @@ import json
 import os
 import struct
 import sys
+import time
 
 import numpy as np
 
@@ -49,9 +50,16 @@ OFF_HUMAN = 0x6a0
 OFF_6D8 = 0x6d8
 OFF_4FC = 0x4fc
 OFF_0B14 = 0x0b14
+MIN_OBJ = 0xb18          # 读取 faction 需要覆盖到 +0x0b14 读 4 字节
 OFF_CAP = 0x644
 OFF_CNT = 0x648
 OFF_TBL = 0x64c
+
+# ── 战役层结构偏移（6262 & 6118 逐字段实机同构：docs/03 §一 + audit §I / g5 relation 链）
+CM_CHAIN_OFF = 0x8c       # faction+0x8c → [+8] = campaign model (cm)
+CM_FARR = 0x1498          # [cm+0x1498] → faction 数组容器（+0x40 cnt / +0x44 base）
+CM_OBJA_SLOT = 0x14b0     # [cm+0x14b0] = obj_A（campaign AI manager 表持有者）
+KEY_BACK = 0x164          # manager 行 key 对象 +0x164 → faction（S2 旧模式/mode2）
 
 MANAGERS = {
     0: "FULL_MANAGER", 1: "MAINTAINANCE", 2: "REBELLION", 3: "END_TURN",
@@ -100,42 +108,45 @@ def readable_regions_fast(h):
     return out
 
 
-def scan_factions(h, base):
+def scan_factions(h, base, faction_vtable_rva=None):
     """全区域扫 faction 对象，返回 [(addr, human, name, treasury)]。
-    区域枚举用 VirtualQueryEx（readable_regions 试读法漏低地址区域 → 漏派系）。"""
+    区域枚举用 VirtualQueryEx（readable_regions 试读法漏低地址区域 → 漏派系）。
+    ★引擎参数化（2026-09-05）：faction_vtable_rva=None → 用模块 VTABLE_RVA（6262 0x15fac30）；
+    6118 主基 0x1594178 由调用方（s2_spectate._resolve_faction_addrs）传入。"""
     regions = readable_regions_fast(h)
-    runtime_vtable = base + VTABLE_RVA
+    runtime_vtable = base + (faction_vtable_rva if faction_vtable_rva is not None else VTABLE_RVA)
     facs = []
     for rs, re in regions:
-        if re - rs < 0x800:
+        if re - rs < MIN_OBJ:
             continue
         start = rs
         while start < re:
             size = min(WINDOW, re - start)
-            if size <= 0x800:
+            if size <= MIN_OBJ:
                 break
             buf = pb.read_mem(h, start, size)
-            if buf is None or len(buf) < 0x800:
+            if buf is None or len(buf) < MIN_OBJ:
                 start += size
                 continue
             n4 = len(buf) // 4
-            lim = n4 - (0x800 // 4)
+            lim = n4 - (MIN_OBJ // 4)
             arr = np.frombuffer(buf, dtype="<u4", count=n4)
             m = arr[:lim] == runtime_vtable
             idx = np.nonzero(m)[0]
             for j in idx:
-                a = start + int(j) * 4
-                h6 = buf[j * 4 + OFF_HUMAN]
+                off = int(j) * 4
+                a = start + off
+                h6 = buf[off + OFF_HUMAN]
                 if h6 not in (0, 1):
                     continue
-                h7a8 = buf[j * 4 + 0x7a8]
+                h7a8 = buf[off + 0x7a8]
                 if h7a8 not in (0, 1):
                     continue
-                name_ptr = struct.unpack_from("<I", buf, j * 4 + OFF_0B14)[0]
+                name_ptr = struct.unpack_from("<I", buf, off + OFF_0B14)[0]
                 name = read_utf16_name(h, name_ptr)
-                tr = struct.unpack_from("<I", buf, j * 4 + OFF_4FC)[0]
+                tr = struct.unpack_from("<I", buf, off + OFF_4FC)[0]
                 facs.append((a, h6, name, tr))
-            start += size - 0x800
+            start += size - MIN_OBJ
     return facs
 
 
@@ -230,6 +241,119 @@ def find_manager_entry(h, objA, tbl, cnt, faction_addr):
         if pb.read_u32(h, k + 0x164) == faction_addr:
             return i, k, m
     return None
+
+
+# ── 引擎通用：campaign AI manager 定位（6118 GUI AI化/恢复路径；6262 沿用 scan_objA）
+def campaign_model_of_faction(h, fa):
+    """faction → +0x8c → [+8] = campaign model（两引擎同构链）。"""
+    p1 = pb.read_u32(h, fa + CM_CHAIN_OFF)
+    if not p1 or not (0x10000 <= p1 < 0x80000000):
+        return None
+    cm = pb.read_u32(h, p1 + 8)
+    return cm if cm and (0x10000 <= cm < 0x80000000) else None
+
+
+def _verify_table_vs_fset(h, tbl, cnt, fset, fvt, min_hit=0.6):
+    """表行验证（mode1 key∈fset / mode2 key+0x164∈fset / [key]==fvt 兜底）。
+    返回 (ok, hit_ratio, human_cnt, m_dist) 或 None（结构非法）。"""
+    if not (0 < cnt <= 0x10000) or not tbl or not (0x10000 <= tbl < 0x80000000):
+        return None
+    hits = human = 0
+    m_dist = {}
+    for i in range(cnt):
+        b = pb.read_mem(h, tbl + i * 8, 8)
+        if b is None or len(b) < 8:
+            return None
+        k, m = struct.unpack("<II", b)
+        if m > 9 or not (0x10000 <= k < 0x80000000):
+            return None
+        m_dist[m] = m_dist.get(m, 0) + 1
+        if m == 7:
+            human += 1
+        ok = k in fset
+        if not ok:
+            f2 = pb.read_u32(h, k + KEY_BACK)
+            ok = f2 in fset if f2 and (0x10000 <= f2 < 0x80000000) else False
+        if not ok and fvt:
+            ok = (pb.read_u32(h, k) == fvt)
+        if ok:
+            hits += 1
+    ratio = hits / cnt if cnt else 0
+    return (ratio >= min_hit, ratio, human, m_dist)
+
+
+def locate_manager_table_cm(h, base, fvt):
+    """cm 槽链：faction 池 → local → cm → [cm+0x14b0] = obj_A → cap/cnt/tbl 行验证。
+    返回 dict(objA, cap, cnt, tbl, hit_ratio, human_cnt) 或 None。只读，快（无需全堆扫）。"""
+    facs = scan_factions(h, base, faction_vtable_rva=fvt)
+    if not facs:
+        return None
+    fset = {a for a, _h6, _n, _t in facs}
+    local = next((a for a, h6, _n, _t in facs if h6 == 1), facs[0][0])
+    cm = campaign_model_of_faction(h, local)
+    if not cm:
+        return None
+    objA = pb.read_u32(h, cm + CM_OBJA_SLOT)
+    if not objA or not (0x10000 <= objA < 0x80000000):
+        return None
+    cap = pb.read_u32(h, objA + OFF_CAP)
+    cnt = pb.read_u32(h, objA + OFF_CNT)
+    tbl = pb.read_u32(h, objA + OFF_TBL)
+    v = _verify_table_vs_fset(h, tbl, cnt, fset, base + fvt)
+    if not v or not v[0]:
+        return None
+    return {"objA": objA, "cap": cap, "cnt": cnt, "tbl": tbl,
+            "hit_ratio": v[1], "human_cnt": v[2], "m_dist": v[3], "facs": len(facs)}
+
+
+def scan_manager_table_heap(h, base, fvt, max_cands=6, cnt_lo=20, cnt_hi=2000, budget_mb=3000.0):
+    """全堆兜底（修正版 Phase B）：cnt@+0x648∈[cnt_lo,cnt_hi] & tbl@+0x64c 合法，
+    再用真实 faction 集合行验证（mode1/mode2/[k]==fvt）。修 6262 scan_objA 两个假阴性源
+    （cnt 上界 [30,120] 滤掉大 mod 152 行真表 + key 验证写死 6262 vtable 常量）。
+    返回候选 list[dict(objA, cnt, tbl, hit_ratio, human_cnt)]，最多 max_cands。"""
+    import numpy as np
+    h_, base_ = h, base
+    facs = scan_factions(h_, base_, faction_vtable_rva=fvt)
+    if not facs:
+        return []
+    fset = {a for a, _h6, _n, _t in facs}
+    cands, total, t0 = [], 0.0, time.time()
+    for rs, re in readable_regions_fast(h_):
+        if re - rs < 0x700:
+            continue
+        start = rs
+        while start < re:
+            size = min(WINDOW, re - start)
+            if size <= 0x700:
+                break
+            buf = pb.read_mem(h_, start, size)
+            if buf is None or len(buf) < 0x700:
+                start += size
+                continue
+            total += len(buf)
+            n4 = len(buf) // 4
+            lim = n4 - (OFF_TBL // 4 + 2)
+            if lim <= 0:
+                start += size - 0x700
+                continue
+            arr = np.frombuffer(buf, dtype="<u4", count=n4)
+            cnt_a = arr[OFF_CNT // 4: OFF_CNT // 4 + lim]
+            tbl_a = arr[OFF_TBL // 4: OFF_TBL // 4 + lim]
+            mask = (cnt_a >= cnt_lo) & (cnt_a <= cnt_hi) & (tbl_a >= 0x10000) & (tbl_a <= 0x7fffffff)
+            for j in np.nonzero(mask)[0][:200]:
+                a = start + int(j) * 4
+                cnt = int(cnt_a[j])
+                tbl = int(tbl_a[j])
+                v = _verify_table_vs_fset(h_, tbl, cnt, fset, base_ + fvt)
+                if v and v[0]:
+                    cands.append({"objA": a, "cnt": cnt, "tbl": tbl,
+                                  "hit_ratio": v[1], "human_cnt": v[2], "m_dist": v[3]})
+                    if len(cands) >= max_cands:
+                        return cands
+            start += size - 0x700
+            if total >= budget_mb * 1e6:
+                return cands
+    return cands
 
 
 def write32(h, addr, v):

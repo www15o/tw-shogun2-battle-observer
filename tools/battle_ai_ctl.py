@@ -37,7 +37,8 @@ PROCESS_VM_OPERATION = 0x0008
 
 
 def open_game():
-    """定位 shogun2.exe + 打开进程 + 检测引擎。返回 (h, base, build, pid) 或 (None,)*4。"""
+    """定位 shogun2.exe + 打开进程 + 检测引擎。返回 (h, base, build, pid) 或 (None,)*4。
+    build = 模块名 'empire'/'shogun2'；引擎细分（6115/6118/6262）在 describe 里按锚点裁决。"""
     pid = pb.find_pid()
     if pid is None:
         print("✗ shogun2.exe 未运行（请先启动游戏）")
@@ -55,19 +56,35 @@ def open_game():
     return h, base, build, pid
 
 
+def _anchors(h, base):
+    """按运行中引擎取 battle_ai 锚点 (rva_obj, rva_vtable)。返回 None 若无法裁决。"""
+    module, bbase, _prof = pb.detect_build(h)
+    if not bbase or bbase != base:
+        return None
+    if module == "empire":
+        return pb.BATTLE_ANCHORS["6262"]["rva_battle_ai"], pb.BATTLE_ANCHORS["6262"]["vtable_rva"]
+    eng, _err = pb.resolve_engine(h, module)
+    if eng in pb.BATTLE_ANCHORS:
+        a = pb.BATTLE_ANCHORS[eng]
+        return a["rva_battle_ai"], a["vtable_rva"]
+    return None
+
+
 def describe(h, base):
     """只读描述 battle_ai 命令对象（校准 vtable/value_id + 当前 set/value）。
-    返回 dict：obj/vtable/vtable_ok/value_id/value_ok/set/value/ok（ok=校准通过）。"""
-    prof = pb.detect_build(h)[2]
-    if prof is None:
+    返回 dict：obj/vtable/vtable_ok/value_id/value_ok/set/value/ok（ok=校准通过）。
+    ★2026-09-05 引擎化：6115/6118 各自锚点（probe_battle_env.BATTLE_ANCHORS）。"""
+    anc = _anchors(h, base)
+    if anc is None:
         return {"ok": False, "obj": 0, "vtable": None, "vtable_ok": False,
                 "value_id": None, "value_ok": False, "set": None, "value": None}
-    obj = base + prof["rva_battle_ai"]
+    rva_obj, rva_vt = anc
+    obj = base + rva_obj
     vtable = pb.read_u32(h, obj + OFF_VTABLE)
     value_id = pb.read_u32(h, obj + OFF_VALUE_ID)
     setb = pb.read_u8(h, obj + OFF_SET)
     val = pb.read_u8(h, obj + OFF_VALUE)
-    vtable_ok = (vtable == base + prof["vtable_rva"])
+    vtable_ok = (vtable == base + rva_vt)
     value_ok = (value_id == EXPECT_VALUE)
     return {
         "obj": obj, "vtable": vtable, "vtable_ok": vtable_ok,

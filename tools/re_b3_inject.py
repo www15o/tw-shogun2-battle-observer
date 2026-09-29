@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """re_b3_inject.py — RE-B3 BCQ 注入：正常战斗（battle_ai=0）单军队切 AI。
 
-依据（work/re_b3_notes.md，2026-08-09 静态 RE 已确证）：
+依据（tools/re_b3_notes.md，2026-08-09 静态 RE 已确证）：
 - BNCQ_ARMY_ORDER_SWITCH_AI handler = 0x2abeb0，签名 FUN_102abeb0(reader, e8)：
   e8 = [[base+0x1bc8180]+0x110+8]；st = [e8+0xb4]。
 - param 流 = [0x02][group_idx][0x02][army_idx]（0x308020 游标式解码：字段=[1 字节 tag][数据]）。
@@ -32,7 +32,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import probe_battle_env as pb
 
 # ---------------- 锚点链（RVA，base 实取） ----------------
+# ★2026-09-05 引擎化：RVA_MGR（battle_mgr 全局槽）按引擎 build 区分
+#   6262 0x1bc8180（现役）/ 6118 0x1b7d978（audit E1/F1 实机）/ 6115 0x1b7d9bc（静态候选，待战斗实机）
 RVA_MGR = 0x1bc8180
+_ENGINE_MGR_SLOT = {"6262": 0x1bc8180, "6118": 0x1b7d978, "6115": 0x1b7d9bc}
+# RVA_GAME_OBJ（SWITCH_AI 残留队列清理）现仅 6262 锁定；6118/6115 未定位 → None=跳过
+RVA_GAME_OBJ = 0x18d8880
+_ENGINE_GAME_OBJ = {"6262": 0x18d8880, "6118": None, "6115": None}
 OFF_ENV = 0x110              # [mgr+0x110] = env
 OFF_E8 = 8                   # [env+8] = e8（handler arg2）
 OFF_ST = 0xb4                # [e8+0xb4] = st（战斗对象）
@@ -71,7 +77,25 @@ UNT_MIN, UNT_MAX = 0, 256
 
 HANDLER_SWITCH_AI = 0x2abeb0
 
+# SWITCH_AI 残留消息队列（P-14 更新2；清 count 关闭 AI 代理）
+# 仓库 VA 0x118d8880 -> RVA 0x18d8880；链：obj -> +0x3a4 -> B -> [B+0x28048] -> Q -> +0x28024 count
+RVA_GAME_OBJ = 0x18d8880
+OFF_SCRIPT_MGR = 0x3a4
+OFF_MSG_QUEUE = 0x28048
+OFF_MSG_COUNT = 0x28024
+
 SNAP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "b3_orig.json")
+
+
+def set_engine(engine):
+    """按引擎装配锚点槽（battle_mgr 全局 / 残留队列全局）。engine ∈ 6262/6118/6115。
+    6118/6115 的残留队列未锁定 → RVA_GAME_OBJ=None，clear_switch_ai_queue 自动跳过。"""
+    global RVA_MGR, RVA_GAME_OBJ
+    if engine in _ENGINE_MGR_SLOT:
+        RVA_MGR = _ENGINE_MGR_SLOT[engine]
+        RVA_GAME_OBJ = _ENGINE_GAME_OBJ.get(engine)
+        return True
+    return False
 
 
 def w8(h, a, v):
@@ -86,6 +110,38 @@ def w32(h, a, v):
     got = ctypes.c_size_t()
     ok = pb.K32.WriteProcessMemory(h, ctypes.c_void_p(a), buf, 4, ctypes.byref(got))
     return bool(ok) and got.value == 4
+
+
+def clear_switch_ai_queue(h, base):
+    """Best-effort 清 SWITCH_AI 残留消息队列 count。
+
+    P-14 已确证：派发器处理完不清 count/cursor → 残留消息 ~1Hz 重派发，
+    把 AI 字段整体重写。清 count 是「关不掉」解法组合之一。
+    若正常战斗无脚本队列（[base+0x18d8880]=0），安全跳过，不误写。
+    返回 (ok, msg)。
+    """
+    if not RVA_GAME_OBJ:
+        return False, "残留队列全局槽未锁定（旧引擎族，跳过——不影响字段复位）"
+    obj = pb.read_u32(h, base + RVA_GAME_OBJ)
+    if not obj:
+        return False, "游戏对象管理器=0（正常战斗无脚本队列，跳过）"
+    b = pb.read_u32(h, obj + OFF_SCRIPT_MGR)
+    if not b:
+        return False, "战斗脚本管理器=0（跳过）"
+    q = pb.read_u32(h, b + OFF_MSG_QUEUE)
+    if not q:
+        return False, "消息队列=0（跳过）"
+    old = pb.read_u32(h, q + OFF_MSG_COUNT)
+    if old is None:
+        return False, "消息队列 count 不可读（跳过）"
+    if old == 0:
+        return True, "SWITCH_AI 残留队列 count 已为 0"
+    if not w32(h, q + OFF_MSG_COUNT, 0):
+        return False, "SWITCH_AI 残留队列 count 写入失败"
+    rb = pb.read_u32(h, q + OFF_MSG_COUNT)
+    if rb == 0:
+        return True, f"SWITCH_AI 残留队列 count {old}→0"
+    return False, f"SWITCH_AI 残留队列 count 写入后回读={rb}"
 
 
 def resolve_e8(h, base):
@@ -1077,13 +1133,19 @@ def write_ai_fields(h, base, group_idx, army_idx, mode):
     return 0
 
 
-def watch_ai(h, base, interval=0.5):
+def watch_ai(h, base, interval=0.5, stop_event=None):
     """监控循环：每 interval 秒全量扫组→军队→单位，把 AI 接管字段应用到全部军队。
-    覆盖援军/新生成单位（+0xea8=0 → 1）。幂等；敌方已 AI 的单位不变。Ctrl+C 停止。"""
-    print(f"监控中：每 {interval}s 对所有军队应用 AI 接管字段（覆盖援军新增单位）Ctrl+C 停止", flush=True)
+    覆盖援军/新生成单位（+0xea8=0 → 1）。幂等；敌方已 AI 的单位不变。
+    stop_event 传入 threading.Event 后可由外部停止（GUI 用）；None 时仍支持 Ctrl+C。"""
+    print(f"监控中：每 {interval}s 对所有军队应用 AI 接管字段（覆盖援军新增单位）"
+          f"{'外部停止事件可用' if stop_event is not None else 'Ctrl+C 停止'}", flush=True)
     last_total = -1
+    stopped = False
     try:
         while True:
+            if stop_event is not None and stop_event.is_set():
+                stopped = True
+                break
             mgr, env, e8, st = resolve_e8(h, base)
             if not st:
                 time.sleep(interval)
@@ -1108,7 +1170,10 @@ def watch_ai(h, base, interval=0.5):
                 last_total = total
             time.sleep(interval)
     except KeyboardInterrupt:
+        stopped = True
         print("\n监控停止")
+    if stop_event is not None and stop_event.is_set():
+        print("监控已停止（外部停止事件）", flush=True)
     return 0
 
 
@@ -1295,11 +1360,23 @@ def main():
     if not h:
         print(f"OpenProcess 失败 err={ctypes.get_last_error()}（需管理员权限）")
         return 2
-    base = pb.module_base(h, "empire.retail.dll")
+    module, base, _prof = pb.detect_build(h)
     if base is None:
-        print("未找到 empire.retail.dll")
+        print("未找到引擎模块（empire.retail.dll / shogun2.dll）")
         return 3
-    print(f"empire.retail.dll base=0x{base:08x} (ASLR +0x{base - 0x10000000:x})")
+    # ★引擎裁决 + 槽装配（2026-09-05：旧引擎族 6118/6115 走各自 battle_mgr 槽）
+    if module == "empire":
+        engine = "6262"
+    else:
+        engine, eerr = pb.resolve_engine(h, module)
+        if not engine:
+            print(f"引擎识别失败: {eerr}")
+            return 3
+    if not set_engine(engine):
+        print(f"未知引擎 {engine}（支持 6262/6118/6115）")
+        return 3
+    print(f"{module} base=0x{base:08x} (ASLR +0x{base - 0x10000000:x}) 引擎={engine} "
+          f"mgr槽=0x{RVA_MGR:x} 残留队列槽={'0x%x' % RVA_GAME_OBJ if RVA_GAME_OBJ else '未锁定(跳过)'}")
 
     if args.probe or not (args.switch_ai or args.verify or args.switch_human
                           or args.bytes or args.test_decode or args.test_handler

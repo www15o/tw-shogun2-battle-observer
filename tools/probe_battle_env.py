@@ -25,11 +25,12 @@
 用法（游戏黑屏进攻战中）：
   python tools/probe_battle_env.py                # 全流程扫描 + 详情
   python tools/probe_battle_env.py --top 5        # 详情只输出前 5 个（默认 10）
-  命中详情写 work/probe_battle_env_hits.txt（供后续注入锚点使用）
+  命中详情写 tools/probe_battle_env_hits.txt（供后续注入锚点使用）
 """
 import argparse
 import ctypes
 import ctypes.wintypes as wt
+import os
 import subprocess
 import sys
 
@@ -54,6 +55,24 @@ K32.WriteProcessMemory.argtypes = [wt.HANDLE, ctypes.c_void_p, ctypes.c_void_p,
                                    ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
 K32.WriteProcessMemory.restype = wt.BOOL
 
+
+class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+    """VirtualQueryEx 输出结构（x86 布局，sizeof=28）。"""
+    _fields_ = [("BaseAddress", ctypes.c_void_p),
+                ("AllocationBase", ctypes.c_void_p),
+                ("AllocationProtect", wt.DWORD),
+                ("__a", wt.DWORD),
+                ("RegionSize", ctypes.c_size_t),
+                ("State", wt.DWORD),
+                ("Protect", wt.DWORD),
+                ("Type", wt.DWORD),
+                ("__b", wt.DWORD)]
+
+
+K32.VirtualQueryEx.argtypes = [wt.HANDLE, ctypes.c_void_p,
+                               ctypes.POINTER(MEMORY_BASIC_INFORMATION), ctypes.c_size_t]
+K32.VirtualQueryEx.restype = ctypes.c_size_t
+
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_VM_READ = 0x0010
 PROCESS_VM_WRITE = 0x0020
@@ -71,6 +90,8 @@ OFF_TRANS = 0x28283     # 天气过渡挂起
 # battle_ai 校准点（探针0 锚点，按引擎 build 区分）
 # 新引擎 Empire.Retail.dll build 6262（2023 CA 更新，原 RE 目标）：0x18d2d88 / 0x15a9cf8
 # 旧引擎 Shogun2.dll build 6118（2021，2026-08-09 重锚定）：0x1986580 / 0x1460a98
+# 旧引擎 Shogun2.dll build 6115（2021 Otomo 近邻同源）：obj 0x19865a0 / vt 0x1460ab8
+#   （2026-09-05 实机锁定：BATTLE_AI_EXCLUSIVE 串 + value_id 0xf8 + vtable 24 槽全 .text；Δ=+0x20 vs 6118）
 BUILDS = {
     "empire":  {"module": "empire.retail.dll", "rva_battle_ai": 0x18d2d88, "vtable_rva": 0x15a9cf8},
     "shogun2": {"module": "shogun2.dll",       "rva_battle_ai": 0x1986580, "vtable_rva": 0x1460a98},
@@ -78,6 +99,15 @@ BUILDS = {
 RVA_BATTLE_AI = BUILDS["empire"]["rva_battle_ai"]
 VTABLE_RVA = BUILDS["empire"]["vtable_rva"]
 EXPECT_VALUE = 0xf8
+
+# ★战斗托管链锚点（re_b3 resolve_e8 等按引擎 build 区分，2026-09-05 迁移用）
+# battle_mgr 全局槽：6262 0x1bc8180（现役） / 6118 0x1b7d978（audit E1/F1 实机） /
+#   6115 0x1b7d9bc（静态同形 31 处最高频候选，⚠ 待战斗态实机裁决——6115 现未锁定，见 _tmp 记录）
+BATTLE_ANCHORS = {
+    "6262": {"rva_battle_ai": 0x18d2d88, "vtable_rva": 0x15a9cf8, "rva_mgr": 0x1bc8180},
+    "6118": {"rva_battle_ai": 0x1986580, "vtable_rva": 0x1460a98, "rva_mgr": 0x1b7d978},
+    "6115": {"rva_battle_ai": 0x19865a0, "vtable_rva": 0x1460ab8, "rva_mgr": 0x1b7d9bc},
+}
 
 WINDOW = 0x200000       # 2MB 滑动窗口
 PAGE = 0x1000
@@ -134,12 +164,56 @@ def module_base(h, suffix):
 
 
 def detect_build(h):
-    """检测运行中的引擎 build。返回 (build_name, base, profile) 或 (None, None, None)。"""
+    """检测运行中的引擎 build。返回 (build_name, base, profile) 或 (None, None, None)。
+    build_name ∈ {'empire','shogun2'}（模块级）；要细分 6115/6118 请用 resolve_engine()。"""
     for name, prof in BUILDS.items():
         b = module_base(h, prof["module"])
         if b:
             return name, b, prof
     return None, None, None
+
+
+def _exe_dir_of_handle(h):
+    """取目标进程 exe 所在目录（QueryFullProcessImageNameW；battle build 识别用）。"""
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        n = ctypes.c_ulong(len(buf))
+        if K32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)):
+            p = buf.value
+            if p and p.lower().endswith("shogun2.exe"):
+                return os.path.dirname(p)
+    except Exception:
+        pass
+    return None
+
+
+def read_build_string(h):
+    """读同目录 Shogun2.dll 内嵌 'BUILD nnnn' → '6115'/'6118'/None（进程磁盘源，机器可读）。"""
+    d = _exe_dir_of_handle(h)
+    if not d:
+        return None
+    path = os.path.join(d, "Shogun2.dll")
+    try:
+        with open(path, "rb") as f:
+            blob = f.read()
+    except Exception:
+        return None
+    import re as _re
+    m = _re.search(rb"BUILD\s+(\d+)", blob)
+    return m.group(1).decode() if m else None
+
+
+def resolve_engine(h, module):
+    """模块名 → 引擎 build 名：'empire'→'6262'；'shogun2'→读 BUILD 串 '6115'/'6118'。
+    返回 (engine, err)。err 非空 = 调用方应提示手动选择。"""
+    if module == "empire":
+        return "6262", None
+    if module == "shogun2":
+        b = read_build_string(h)
+        if b in ("6115", "6118"):
+            return b, None
+        return None, f"无法确定 Shogun2.dll 内嵌 build（读到 {b!r}）——请手动选 6115/6118"
+    return None, f"未知模块 {module!r}"
 
 
 def read_mem(h, addr, n):
@@ -169,38 +243,49 @@ def write_u8(h, addr, val):
 
 
 def readable_regions(h):
-    """试读法枚举连续可读区间（页粒度），返回 [(start, end), ...]。"""
+    """全地址空间枚举已提交可读区间，返回 [(start, end), ...]（base 升序）。
+
+    ★ 2026-09-12 修复（L42 读数事故）：旧实现是「逐 64KB 试读」，
+      实测漏掉 2146 区域 / 1178MB 已提交可读内存（主要是 protect=0x04
+      type=MEM_PRIVATE 的私有堆），导致 re_goal4_c4_material 建件宇宙时把
+      idx 937..968 塔件整段漏掉（只找到 827/1195 件）→ capscan 误得「塔 0 座」。
+      现改为自行 VirtualQueryEx 全走：收录 State==MEM_COMMIT(0x1000)
+      且 Protect 不属 (0x01 NOACCESS, 0x100 GUARD) 且 (Protect & 0xEE) != 0 的区域。
+      相邻/重叠区域合并为连续区间；VirtualQueryEx 失败时 addr += 0x10000 继续。
+    """
     regions = []
     cur_start = cur_end = None
-    addr = 0x10000
-    while addr < 0x7f000000:
-        got = 0
-        b = read_mem(h, addr, BLOCK)
-        if b is not None and len(b) == BLOCK:
-            got = BLOCK
-        else:
-            sub = addr
-            while sub < addr + BLOCK:
-                b2 = read_mem(h, sub, PAGE)
-                if b2 is not None and len(b2) == PAGE:
-                    got = sub - addr + PAGE
-                else:
-                    break
-                sub += PAGE
-        if got:
-            if cur_end is not None and addr <= cur_end:
-                cur_end = addr + got
+    addr = READABLE_MIN
+    while addr < READABLE_MAX:
+        mbi = MEMORY_BASIC_INFORMATION()
+        if not K32.VirtualQueryEx(h, ctypes.c_void_p(addr), ctypes.byref(mbi),
+                                 ctypes.sizeof(mbi)):
+            addr += BLOCK
+            continue
+        base = mbi.BaseAddress or 0
+        size = mbi.RegionSize or 0
+        if size == 0:
+            addr += BLOCK
+            continue
+        if base + size <= addr:        # 防御：查询未前进 → 强制步进，避免死循环
+            addr += BLOCK
+            continue
+        prot = mbi.Protect
+        if mbi.State == 0x1000 and prot not in (0x01, 0x100) and (prot & 0xEE):
+            if cur_end is not None and base <= cur_end:
+                cur_end = max(cur_end, base + size)
             else:
                 if cur_end is not None:
                     regions.append((cur_start, cur_end))
-                cur_start, cur_end = addr, addr + got
+                cur_start, cur_end = base, base + size
         else:
             if cur_end is not None:
                 regions.append((cur_start, cur_end))
                 cur_start = cur_end = None
-        addr += BLOCK
+        addr = base + size
     if cur_end is not None:
         regions.append((cur_start, cur_end))
+    regions.sort(key=lambda r: r[0])
     return regions
 
 
@@ -400,7 +485,7 @@ def main():
         print(f"      ws=0x{d['v']:08x} [+8]=0x{d['ws8'] if d['ws8'] is not None else -1:x} "
               f"[+10]=0x{d['ws10'] if d['ws10'] is not None else -1:x} [+0x14]=0x{d['ws14'] if d['ws14'] is not None else -1:x}")
 
-    out = "work/probe_battle_env_hits.txt"
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probe_battle_env_hits.txt")
     with open(out, "w") as f:
         f.write(f"# probe_battle_env hits ({len(details)} 探针3命中)\n")
         f.write("# pos=env对象候选基址 st=env状态 human=+0x13f app=+0x28280-82 trans=+0x28283 ws=天气状态对象\n")

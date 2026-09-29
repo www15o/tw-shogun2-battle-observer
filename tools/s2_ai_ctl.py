@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """s2_ai_ctl.py — 幕府2 战斗 AI 托管控制台（RE-B3 直接写字段方案，封装版）。
 
-原理（2026-08-09 实机确证，见 docs/23_HANDOFF + work/re_b3_notes.md）：
+原理（2026-08-09 实机确证，见 docs/23_HANDOFF + tools/re_b3_notes.md）：
 - AI 激活 = 单位 [+0xea8]=1/[+0xc01]=1 + 军队字段 [a28c]=1/[a290]=1.0f/[a294]=-1/[a270]=0
 - a270=0（清人类标志）是 AI 激活前提，但同时触发速度锁（P25 同款；无解耦字段）
 - 全程 WriteProcessMemory 直写，零代码执行、零崩溃风险、无黑屏（绕开 battle_ai 天气UI机制）
@@ -26,6 +26,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import probe_battle_env as pb
 import re_b3_inject as b3
+import battle_ai_ctl as ba
 
 
 def open_game():
@@ -38,24 +39,32 @@ def open_game():
     if not h:
         print(f"✗ OpenProcess 失败 err={__import__('ctypes').get_last_error()}（需管理员权限）")
         return None, None, None, None
-    build, base, prof = pb.detect_build(h)
+    module, base, prof = pb.detect_build(h)
     if base is None:
         print("✗ 未找到引擎模块（shogun2.dll / empire.retail.dll）")
         return None, None, None, None
-    print(f"✓ PID={pid} 引擎={build} base=0x{base:08x}")
-    if build != "empire":
-        print("  ⚠ resolve_e8 链仅在新引擎（empire.retail.dll）验证；旧引擎（shogun2.dll）请用 battle_ai 注入")
-    return h, base, pid, build
+    if module == "empire":
+        engine = "6262"
+    else:
+        engine, eerr = pb.resolve_engine(h, module)
+        if not engine:
+            print(f"✗ 引擎识别失败: {eerr}（手动确认 build 后重试）")
+            return None, None, None, None
+    b3.set_engine(engine)
+    print(f"✓ PID={pid} 引擎={module} build={engine} base=0x{base:08x} "
+          f"battle_mgr槽=0x{b3.RVA_MGR:x}")
+    return h, base, pid, engine
 
 
 WRITE_CMDS = ("all-ai", "auto", "keep1", "human", "watch")
 
 
 def build_guard(build, cmd):
-    """写命令仅允许新引擎（resolve_e8 链在旧引擎未验证，防误写）。"""
-    if build != "empire":
-        print(f"✗ {cmd} 仅支持新引擎（empire.retail.dll）。旧引擎（shogun2.dll）请用：")
-        print("    python work\\re_b1_force.py --cmd battle_ai --write")
+    """写命令引擎门禁：锚点已按引擎装配（6262/6118/6115 各自 battle_mgr 槽/battle_ai 锚点）。
+    旧引擎族若 battle_mgr 槽未实机验证过会由链解析 fail-closed（resolve_e8 失败即拒绝写），
+    不会误写。返回 False 仅当引擎完全未知。"""
+    if build not in ("6262", "6118", "6115"):
+        print(f"✗ {cmd} 引擎 build {build!r} 未知——确认引擎后重试")
         return False
     return True
 
@@ -75,8 +84,9 @@ def cmd_probe(h, base):
     return b3.probe(h, base)
 
 
-def cmd_all_ai(h, base):
-    """全员 AI 托管：全组全军应用 AI 字段 + st 标志，然后启动援军监控。"""
+def cmd_all_ai(h, base, stop_event=None):
+    """全员 AI 托管：全组全军应用 AI 字段 + st 标志，然后启动援军监控。
+    stop_event 传入 threading.Event 后可由外部停止（GUI 用）；None 时 Ctrl+C 停止。"""
     if not battle_ok(h, base):
         return 1
     mgr, env, e8, st = b3.resolve_e8(h, base)
@@ -94,8 +104,8 @@ def cmd_all_ai(h, base):
         total += 1
     print(f"✓ 全员 AI 托管完成（{total} 处写入）")
     print("  注：全员 AI 后战斗会自动开打，变速锁死（P25 同款）——这是引擎对'玩家军队 AI 激活'的固有行为")
-    print("  现在启动援军监控（新单位自动补写，Ctrl+C 停止）...")
-    return b3.watch_ai(h, base, interval=0.5)
+    print("  现在启动援军监控（新单位自动补写，可外部停止）...")
+    return b3.watch_ai(h, base, interval=0.5, stop_event=stop_event)
 
 
 def cmd_keep1(h, base, keep_unit=0):
@@ -124,9 +134,31 @@ def cmd_keep1(h, base, keep_unit=0):
 
 
 def cmd_human(h, base):
-    """切回人控：全组全军恢复原字段（单位+0xea8=0 等）。"""
+    """切回人控：按 P-14 完整关闭序列清残留队列 + battle_ai=0 + 全字段复位。
+
+    顺序：
+      1) 清 SWITCH_AI 残留消息队列 count（防 ~1Hz 重派发把 AI 字段写回）
+      2) battle_ai 根开关置 0
+      3) 全组全军 human 字段 + st+0x31f0=0
+    """
     if not battle_ok(h, base):
         return 1
+
+    print("▶ 切回人控：先清 SWITCH_AI 残留队列…")
+    ok_q, msg_q = b3.clear_switch_ai_queue(h, base)
+    print(f"  残留队列: {msg_q}")
+
+    print("▶ battle_ai 根开关置 0…")
+    ok_b = False
+    try:
+        ok_b, d_b = ba.set_battle_ai(h, base, False)
+        if d_b.get("ok"):
+            print(f"  battle_ai set=0x{d_b['rb_set']:02x} value=0x{d_b['rb_value']:02x} 回读={d_b['rb_value']}")
+        else:
+            print("  battle_ai 校准未通过/跳过（不影响字段复位）")
+    except Exception as e:
+        print(f"  battle_ai 写入异常（继续字段复位）: {e}")
+
     mgr, env, e8, st = b3.resolve_e8(h, base)
     groups = b3.walk_groups(h, st)
     if not groups:
@@ -139,19 +171,22 @@ def cmd_human(h, base):
             total += n
     if b3.w8(h, st + b3.ST_SWITCHED, 0):
         total += 1
-    print(f"✓ 已切回人控（{total} 处复位）")
+    print(f"✓ 已切回人控（{total} 处复位；残留队列={ok_q} battle_ai=0={ok_b}）")
     return 0
 
 
-def cmd_auto(h, base, min_state=5, interval=0.5):
+def cmd_auto(h, base, min_state=5, interval=0.5, stop_event=None):
     """自动托管：后台监测战斗状态，进入 min_state（默认5=战斗进行）后自动全员 AI 接管，
-    持续补写覆盖援军/新单位，战斗结束自动待命下一场。Ctrl+C 停止。"""
+    持续补写覆盖援军/新单位，战斗结束自动待命下一场。
+    stop_event 传入 threading.Event 后可由外部停止（GUI 用）；None 时 Ctrl+C 停止。"""
     print(f"自动托管已启用：监测战斗状态，进入 state>={min_state} 自动全员 AI 接管"
-          f"（每 {interval}s 检测，Ctrl+C 停止）", flush=True)
+          f"（每 {interval}s 检测，{'外部停止事件可用' if stop_event is not None else 'Ctrl+C 停止'}）", flush=True)
     armed = False      # 本场战斗是否已接管
     last_state = None
     try:
         while True:
+            if stop_event is not None and stop_event.is_set():
+                break
             mgr, env, e8, st = b3.resolve_e8(h, base)
             if not st:
                 if last_state is not None:
@@ -194,14 +229,16 @@ def cmd_auto(h, base, min_state=5, interval=0.5):
             time.sleep(interval)
     except KeyboardInterrupt:
         print("\n自动托管已停止")
+    if stop_event is not None and stop_event.is_set():
+        print("自动托管已停止（外部停止事件）", flush=True)
     return 0
 
 
-def cmd_watch(h, base):
+def cmd_watch(h, base, stop_event=None):
     if not battle_ok(h, base):
         return 1
-    print("援军监控：新单位自动补写 AI（Ctrl+C 停止）")
-    return b3.watch_ai(h, base, interval=0.5)
+    print("援军监控：新单位自动补写 AI（可外部停止）")
+    return b3.watch_ai(h, base, interval=0.5, stop_event=stop_event)
 
 
 def main():

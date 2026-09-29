@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """re_h46a.py — H46a 实机实验：直写 [pending+0x50]=9 走状态机（目标3 撬动候选）。
 
-依据（2026-08-10 静态，work/re_h45_static_report.md + 32_HANDOFF）：
+依据（2026-08-10 静态，tools/re_h45_static_report.md + 32_HANDOFF）：
 - pending 状态 +0x50 写者 = FUN_1057fca0（语义：mov [pending+0x50]=arg）
 - pending 状态机 = FUN_10604260（主循环 FUN_10703ea0 @0x7045d8 分支：状态!=10 才调）
 - 状态：1=激活(处理setup条目) 2=待冲突 5/7/8=推进 9=战斗启动(→FUN_10560470) 10=空/终态

@@ -7,15 +7,91 @@
 - 全模式 xref：push/mov/lea/cmp imm32 直接引用 + E8 相对 call 目标
 - 字符串定位
 """
+import os
 import struct
 from capstone import Cs, CS_ARCH_X86, CS_MODE_32, CS_GRP_CALL, CS_GRP_JUMP
 
-DLL = r"<GAME_DIR>\Empire.Retail.dll"
 IMAGE_BASE = 0x10000000
+
+# 本仓库不附带任何游戏二进制。DLL 路径解析优先级：
+#   SHOGUN2_DLL（完整文件路径）→ SHOGUN2_DIR（游戏根目录）→ Steam 安装位置自动探测
+_DLL_NAME = "Empire.Retail.dll"
+_GAME_SUBPATH = os.path.join("steamapps", "common", "Total War SHOGUN 2")
+
+
+def _steam_roots():
+    """列出本机 Steam 库根目录（注册表 + libraryfolders.vdf）；非 Windows / 失败返回空表。"""
+    roots = []
+    try:
+        import winreg
+    except ImportError:
+        return roots
+    steam = None
+    for hive, key, name in (
+        (winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam", "SteamPath"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Valve\Steam", "InstallPath"),
+    ):
+        try:
+            with winreg.OpenKey(hive, key) as k:
+                steam = winreg.QueryValueEx(k, name)[0]
+                break
+        except OSError:
+            continue
+    if not steam:
+        return roots
+    steam = os.path.normpath(steam)
+    roots.append(steam)
+    vdf = os.path.join(steam, "steamapps", "libraryfolders.vdf")
+    try:
+        with open(vdf, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('"path"'):
+                    parts = line.split('"')
+                    if len(parts) >= 4:
+                        p = parts[3].replace("\\\\", "\\")
+                        if os.path.isdir(p):
+                            roots.append(os.path.normpath(p))
+    except OSError:
+        pass
+    return roots
+
+
+def find_dll():
+    """定位游戏引擎模块；找不到返回 None（保持模块可 import，不猜测路径）。"""
+    env = os.environ.get("SHOGUN2_DLL")
+    if env and os.path.isfile(env):
+        return env
+    cands = []
+    d = os.environ.get("SHOGUN2_DIR")
+    if d:
+        cands.append(os.path.join(d, _DLL_NAME))
+    for root in _steam_roots():
+        cands.append(os.path.join(root, _GAME_SUBPATH, _DLL_NAME))
+    for c in cands:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def require_dll():
+    """取 DLL 路径；找不到时给出明确指引后抛错。"""
+    p = DLL or find_dll()
+    if not p:
+        raise RuntimeError(
+            "未找到 " + _DLL_NAME + "：请设置 SHOGUN2_DLL（完整文件路径）或 "
+            "SHOGUN2_DIR（游戏根目录）。本仓库不附带游戏文件。"
+        )
+    return p
+
+
+DLL = find_dll()
 
 
 class PE:
-    def __init__(self, path=DLL):
+    def __init__(self, path=None):
+        path = path or require_dll()
         with open(path, "rb") as f:
             self.data = f.read()
         self.path = path
