@@ -1,8 +1,5 @@
-# Shogun2 Observer v0.1.0 — 幕府将军2：AI 看海 / 观战 / 托管 全套实现
-###### Shogun2 Observer（幕府2 观察者）— Total War: SHOGUN 2 AI Spectate / Autopilot Suite
-
-> **产品名**：**Shogun2 Observer（幕府2 观察者）**，版本 **0.1.0**（程序内版本号以 `VERSION` 为唯一真源）。
-> 旧名 **TW Observer** 已废弃，请以 **Shogun2 Observer** 为准。
+# 幕府将军2：AI 看海 / 观战 / 托管 全套实现
+###### Total War: SHOGUN 2 — AI Spectate / Autopilot / Campaign Automation Suite
 
 ---
 
@@ -19,8 +16,6 @@ Three goals, all reached via **direct memory writes** to the 32-bit process (no 
 Plus a **pre-write filter** (type / scale / faction) so only the battles you care about get loaded.
 
 Docs are primarily in Chinese (`docs/`, `reports/`). Tools are research-grade Python prototypes requiring **admin rights** (memory read/write). See `CONTRIBUTING.md` for deep-dive directions and dev conventions.
-
-**Product**: **Shogun2 Observer** (幕府2 观察者) **v0.1.0** — formerly *TW Observer* (that name is retired). A **packaged `.exe`** exists, built with an embedded `requireAdministrator` manifest; **no GitHub Release has been published for this round yet**. **Administrator rights are mandatory**: the tools open the game process and read/write its memory. Runtime and crash logs are written to `%APPDATA%\Shogun2Observer\logs`.
 
 > **Verification note**: the three goals were validated by the author on real gameplay (dates below). The current release is a **re-packaging of already-verified work** — it has **not** been re-tested live. Treat "works" claims as *author-verified at the stated date*, not *re-verified today*.
 
@@ -55,16 +50,6 @@ Docs are primarily in Chinese (`docs/`, `reports/`). Tools are research-grade Py
 
 ## 快速开始
 
-### 运行方式
-
-| 方式 | 说明 |
-|---|---|
-| **打包 exe** | 已有打包好的 `Shogun2 Observer.exe`（内嵌 `requireAdministrator` 清单，双击即弹 UAC）。**本轮尚未建 GitHub Release**，后续版本会挂到 Releases |
-| **源码直跑** | 需要 Windows + Python 3，按下文命令运行（同样需要管理员权限） |
-
-> ⚠️ **必须使用管理员权限**：所有工具都要读写游戏进程内存（`OpenProcess` + `ReadProcessMemory` / `WriteProcessMemory`），非管理员运行会打不开进程。`_run_elev.py` 会弹 UAC 提权。
-> 📄 **日志位置**：运行日志与崩溃栈写入 `%APPDATA%\Shogun2Observer\logs`（在资源管理器地址栏输入 `%APPDATA%` 即可直达）。
-
 **前置**：Windows + Python 3 + Steam 版《幕府将军2》
 
 依赖：`pip install numpy`（必备）；`pip install capstone`（仅静态分析模式需要，运行时托管/看海/观战不需要）
@@ -87,7 +72,6 @@ python tools\_run_elev.py s2_control_gui.py
 
 > 所有工具均需**管理员权限**（内存读写）。`_run_elev.py` 会弹 UAC；也可直接右键"以管理员身份运行"。
 > ⚠️ **请勿单独拷走某个 .py**——入口脚本依赖同目录模块，详见 `tools/README.md`。
-> ⚠️ **引擎偏移 profile 必须随库保留**：`tools/old_engine_support/profiles/` 下的 `Shogun2.dll_*.json` 是工具定位引擎所必需的偏移表，**删掉工具就跑不起来**。
 > 游戏路径不硬编码：自动从 Steam 注册表探测，也可用 `SHOGUN2_DIR` / `SHOGUN2_DLL` 指定。
 
 ## 工具清单
