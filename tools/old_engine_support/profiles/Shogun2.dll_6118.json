@@ -1,0 +1,599 @@
+{
+ "module": "Shogun2.dll",
+ "build": "6118",
+ "build_id_string": "BUILD 6118",
+ "generated": false,
+ "score_gate": 0.55,
+ "image_base_preferred": "0x10000000",
+ "anchors": {
+  "a1_decision_entry": {
+   "rva": "0xb93b30",
+   "score": 0.7542,
+   "verified": false,
+   "status": "static_confirmed",
+   "note": "旧引擎反汇编与新引擎同语义函数逐条同构；本轮再加**伪代码逐行对照**：old 44 行 ↔ new 41 行，+0x55/+0xb9/+0x7c/[[+0x30]+8]+0x155c(引擎原生双人类标志)/[+0x80]+0xd 起点 stride 0x10 比较循环 / [[[+0xea0]…]+0x33/+0x34] **全部同偏移同语义**。A1 本体只判断、不写状态。",
+   "evidence": [
+    {
+     "kind": "asm_isomorphism",
+     "report": "calib_static_6118.json",
+     "old_asm": "mov al, byte ptr [ecx + 0x55] | test al, al | push esi | jne 0x10b93b40 | cmp byte ptr [ecx + 0xb9], al | je 0x10b93b56 | mov esi, dword ptr [ecx + 0x7c] | test esi, esi | jne 0x10b93b5a"
+    },
+    {
+     "kind": "pseudo_code_field_set_calibration",
+     "report": "pseudo_diff_calib.json",
+     "note": "A1 位移集合 jaccard 0.714（已知同源配对，度量校准通过）"
+    },
+    {
+     "kind": "same_this_as_host",
+     "note": "host 入口 `mov edi,ecx` + A1 调用现场 `mov ecx,edi` ⇒ A1 的 this == host 的 this == 同一个 pending 对象"
+    }
+   ]
+  },
+  "state_setter": {
+   "rva": "0xb92e50",
+   "score": 1.0,
+   "verified": false,
+   "status": "static_confirmed",
+   "note": "新 `0x57fca0` 的语义孪生：写 `[this+4]` + `cmp 0xa` + state-10 时 `[[this+0]+0xa78]+8` 通知，**位移集合 jaccard = 1.000**（唯一汇编差异＝旧版多一条 vptr 判空 `test eax,eax; je`，等级 asm_isomorphism）。关键更正：它被 `lea ecx,[P+0x4c]; call` 调用 ⇒ setter 的 `[this+4]` 就是 **pending+0x50**（同一个 dword 的两种基址写法，不是第二个字段）。全镜像 xref_count = 2（capstone / `search.py --caller` / Ghidra 三方一致），两处都在 `FUN_10bf1f60` 且都 `push 0xa` ⇒ **它是 state-1 的 decline（拒战）分支，与结算(state 6) 互斥**；上游 = host `0xc225e4 → FUN_10bf7590 → FUN_10bf1f60`（另一入口 `FUN_10c5a8d0` ← `FUN_10c93830`/dispatcher `FUN_10ca01f0`）。**6118 里无人调 `setter(obj,5)`/`setter(obj,6)`** ⇒ 结算/合并状态全走 host 内联（见 state6_settlement_write）。配对 `FUN_10bf1f60` ↔ 新 decline 家族 `FUN_105db4f0`(10,9,9)/`FUN_105db480`(10) 仅记 match_score/推断。",
+   "evidence": [
+    {
+     "kind": "pseudo_code_field_set_calibration",
+     "report": "pseudo_diff_calib.json",
+     "note": "两版都只引用 +0x4 与 *param_1+0xa78"
+    },
+    {
+     "kind": "xref_enumeration",
+     "report": "defer_site_6118_20260904.md",
+     "note": "唯一 caller FUN_10bf1f60；其开头 `v=[obj+0x50]; v==0 return; v==10 return; v!=1 return`"
+    }
+   ]
+  },
+  "pending_ctor_dispatcher": {
+   "rva": "0xca01f0",
+   "score": 0.7251,
+   "verified": false,
+   "status": "static_confirmed",
+   "note": "唯一直调 `FUN_10bf78b0`（= vt_pending 的 ctor），call@0x10ca05f9。",
+   "evidence": [
+    {
+     "kind": "asm_isomorphism",
+     "report": "calib_static_6118.json",
+     "old_asm": "sub esp, 0x20 | push ebx | push ebp | push esi | mov esi, ecx | mov ecx, dword ptr [esi + 0x149c] | push edi | xor ebx, ebx | push ebx | mov dword ptr [esp + 0x14], esi"
+    },
+    {
+     "kind": "static_lockdown",
+     "report": "static_lockdown_vtables_20260904.md",
+     "note": "E8 扫描：dispatcher 唯一直接 call 目标 = ctor FUN_10bf78b0"
+    }
+   ]
+  },
+  "vt_pending_ctor": {
+   "rva": "0xbf78b0",
+   "verified": false,
+   "status": "static_confirmed",
+   "note": "pending 对象构造函数：初始化 {+0x50,+0x54,+0x55,+0x7c,+0x90,+0xb9} = 正是 A1 与 host 读的那组字段；`[this+0] ← 0x1593424`（存表指令在 0x10bf790f）。新引擎同一 ctor = FUN_10571520，存的正是已确证的 VT_PENDING 0x115fa8a4。",
+   "evidence": [
+    {
+     "kind": "static_lockdown",
+     "report": "static_lockdown_vtables_20260904.md",
+     "note": "字段位移 jaccard 0.904 + 类簇 6=6 引用者 + 同 ctor 对照"
+    }
+   ]
+  },
+  "setup_builder": {
+   "rva": "0x10ccd4a0",
+   "score": 0.7966,
+   "verified": false,
+   "status": "static_confirmed",
+   "note": "↔ 新引擎 `0x6bba80`（profile 原为 unresolved）。判据：唯一串锚 `campaign|%S` 两版各 1 引用者、size 2439↔2466、位移 jaccard 0.797（共有稀有偏移 0xea0/0x14a0/0x14a4/0x14e0）、**两版各 2 处直调**（旧宿主 FUN_10cd4490，返回址 0xcd4573/0xcd45b8）。新引擎侧\"0 callers\"经 E8 复核是 Ghidra 假阴性。体内不写任何 .rdata vtable 常量（两版对称）⇒ 它**不是构造函数**，锁的是 code RVA 身份；\"构造 pending\"这一标签**未证实**（它不在 host 的 callee 树里）。",
+   "evidence": [
+    {
+     "kind": "static_lockdown",
+     "report": "static_lockdown_vtables_20260904.md §9.4"
+    }
+   ]
+  },
+  "state_machine_site_a": {
+   "rva": "0xc229da",
+   "score": 0.7567,
+   "verified": false,
+   "status": "static_confirmed",
+   "note": "= call A1 的返回址（新引擎同规则复现 0x6045a4/0x6045c9/0x604936）",
+   "evidence": [
+    {
+     "kind": "derived_from_call_site",
+     "call_va": "0x10c229d5",
+     "report": "sites_old_6118_c22530_b93b30.json"
+    }
+   ]
+  },
+  "state_machine_site_b": {
+   "rva": "0xc22a05",
+   "score": 0.7567,
+   "verified": false,
+   "status": "static_confirmed",
+   "note": "= call A1 的返回址",
+   "evidence": [
+    {
+     "kind": "derived_from_call_site",
+     "call_va": "0x10c22a00",
+     "report": "sites_old_6118_c22530_b93b30.json"
+    }
+   ]
+  },
+  "state_machine_site_c": {
+   "rva": "0xc22dfd",
+   "score": 0.7567,
+   "verified": false,
+   "status": "static_confirmed",
+   "note": "= call A1 的返回址",
+   "evidence": [
+    {
+     "kind": "derived_from_call_site",
+     "call_va": "0x10c22df8",
+     "report": "sites_old_6118_c22530_b93b30.json"
+    }
+   ]
+  },
+  "state6_settlement_write": {
+   "rva": "0xc22e21",
+   "score": 0.7567,
+   "verified": false,
+   "status": "live_byte_verified_unpatched",
+   "note": "**更正（原记\"host 内既无 call setter 也无内联 mov[+4],imm\"是假阴性，检索形状过窄）**：6118 的结算写是 host 内的**内联** `89 5f 50  mov dword ptr [edi+0x50], ebx`，ebx=5 由块头 `0xc22c43 mov ebx,5` 装载并支配其后整块。放行/merge 比较 = `0xc22e24 cmp [edi+0x50], ebx`（≡ 新 `0x60495d`），未放行 `jne 0xc235ba`（≡ 新 `jne 0x604faf`）。活进程只读核对：`0xc22c3f` 9B、`0xc22e15` 24B **逐字节相等**且在 21.2MB .text 内**各唯一命中 1 处**。",
+   "evidence": [
+    {
+     "kind": "live_byte_compare_readonly",
+     "note": "pid=2888 base=0x5c2e0000：L1 `83 7f 50 06 bb 05 00 00 00` ✅；L3 `8b 11 8b 52 08 8d 44 24 12 50 ff d2 89 5f 50 39 5f 50 0f 85 8d 07 00 00` ✅；两模式 .text 唯一性各 1 处"
+    },
+    {
+     "kind": "dominance_proof",
+     "report": "defer_site_6118_20260904.md",
+     "note": "外部跳入 host 分支 0 条；写点唯一入边 = 0xc22e1f call edx 的 fall-through ⇒ ebx==5 支配性成立"
+    }
+   ]
+  },
+  "defer_landing_site": {
+   "rva": "0xc22e15",
+   "verified": false,
+   "status": "live_byte_verified_unpatched",
+   "note": "**defer 落点候选（未来改造用）**：5 字节 patch 窗口 `8b 11 8b 52 08`（= `mov edx,[ecx]` + `mov edx,[edx+8]`，两条完整指令、无截断），stub 需重放 `0xc22e15..0xc22e20` 共 12B。控制流与新引擎 defer 逐条等价。⚠ **移植陷阱**：6118 里 pending 在 **edi**（新引擎在 ebx），**ebx 是常量 5 不许污染**，scratch 用 eax ⇒ `build_defer_stub` 的寄存器角色**不能照搬**。备选窗口 `0xc22e1a`(5B) 不推荐（放行路径仍需复制原写）。",
+   "evidence": [
+    {
+     "kind": "static_lockdown",
+     "report": "defer_site_6118_20260904.md §4.3/§6"
+    }
+   ]
+  },
+  "legacy_callsite_cleanup": {
+   "rva": "0xc22a00",
+   "score": 0.7567,
+   "verified": false,
+   "status": "candidate",
+   "note": "仅用于清理旧版 hook 残留；6118 全新安装一般用不到",
+   "evidence": [
+    {
+     "kind": "derived_from_call_site",
+     "note": "第二条 call 指令本身"
+    }
+   ]
+  },
+  "vt_pending": {
+   "rva": "0x1593424",
+   "score": 0.96,
+   "verified": true,
+   "status": "live_confirmed",
+   "note": "由 ctor `FUN_10bf78b0` 装在 `[this+0]`；ctor 初始化的字段集 {+0x50,+0x54,+0x55,+0x7c,+0x90,+0xb9} 与 A1/host 读的完全一致。**live 一元判定通过（2026-09-04 00:0x, pid=2888）**：A1 hook 捕获 3 次调用，this = `0x55c00200`（唯一 pending 实例），其 [0]=+0x1593424 且四张子表 [0/+4/+0x18/+0x1c]=0x1593424/0x1593438/0x1593418/0x1593430 与 ctor 静态锁定逐字一致；state=4（人类等待态）、+0x55=1；PRE 链 hdr+0x18=5 / hdr+0x78=6 读得。表体形态：3 个代码槽后紧跟 ASCII（6118 子表 .rdata **倒序**排布所致，见 dead_end_channels 的阈值教训）⇒ 不能据此判伪。",
+   "evidence": [
+    {
+     "kind": "static_lockdown",
+     "report": "static_lockdown_vtables_20260904.md §9.7",
+     "note": "新侧同 ctor 存 0x115fa8a4（已确证 VT_PENDING）；类簇 6=6 引用者"
+    },
+    {
+     "kind": "live_confirmed",
+     "report": "a1_probe_2888_000642.json",
+     "note": "A1(0xb93b30) inline-hook 捕获 this=0x55c00200，[0]=+0x1593424，四表与 ctor 静态一致；调用点 +0xc229da/+0xc22a05（= host site_a/b，state-1 决策）实机命中；挂起战斗在场时全堆唯一实例"
+    }
+   ]
+  },
+  "pre_chain_root": {
+   "rva": null,
+   "verified": false,
+   "status": "static_confirmed",
+   "note": "**Goal3.1 的部队规模链在 6118 的对应**：host 内 `*(int*)(*(int*)(param_1[0x24] + 0x1c) + K)`，`param_1[0x24]` 是 int* 下标形式 ⇒ **链根 = pending+0x90，与新引擎同值同偏移**；第二跳 `+0x1c` 与 docs/61 一致。6118 几何：`preRoot{+0x04 状态∈{-1,0,1}, +0x1c vec}`，`vec{+0x04 begin, +0x08 end, stride 0x60, 标量 +0x58/+0x64/+0x68/+0xb8}`，元素字段 +0x88/+0x5c/+0x24。⇒ docs/61 的 `hdr+0x18/+0x78` 在 6118 属**层级差**（vec 元素 vs hdr 直读），不是平移；留一次实机一元判定。消费该链的 `FUN_10bfd540` size 仅 501、唯一 xref = host。",
+   "evidence": [
+    {
+     "kind": "pseudo_code_line_by_line",
+     "report": "static_lockdown_vtables_20260904.md §9.6",
+     "note": "old L526/541/556/561/621/626 ↔ new host 同序同偏移"
+    }
+   ]
+  },
+  "campaign_tick_driver": {
+   "rva": "0xd012d0",
+   "verified": false,
+   "status": "static_confirmed",
+   "note": "host `FUN_10c22530` 的**唯一 caller**（= 战役层 tick 驱动）↔ 新引擎 `FUN_10703ea0`。",
+   "evidence": [
+    {
+     "kind": "xref_enumeration",
+     "report": "defer_site_6118_20260904.md"
+    }
+   ]
+  },
+  "vt_model": {
+   "rva": "0x15ac334",
+   "score": 0.97,
+   "verified": false,
+   "status": "static_confirmed_live_singleton",
+   "note": "聚合 ctor `FUN_10d12e10`(2742B) 在 `[esi+k*0x14]` 装 185 张子表、最大 disp 0xe88 ↔ 新 `FUN_106669c0` 187 张/同 0xe88，位移 jaccard **0.9698**（控制组 0.0943 ⇒ 度量有 ~10× 判别力）。三 ctor 家族 1:1（d0ec70/d10b00/d12e10 ↔ 6463e0/649180/6669c0）。**实机：pid=2888 全堆只有 1 个实例 `0x1a0798a0`**（单例，符合\"战役模型\"），且其体内 +0x604/+0x618/+0x62c/+0x640/+0x654 **步长 0x14** 各带一个 .rdata 子表（rva 依次 0x15abf98→f8c→f80→f74→f68，**递减 0xc**）⇒ 与\"倒序紧挨的 181 张 3 槽子表\"预测同形。",
+   "evidence": [
+    {
+     "kind": "live_needle_scan",
+     "report": "verify_vt_model_15ac334_2888.json",
+     "note": "1 实例 + 子表阶梯实测"
+    }
+   ]
+  },
+  "vt_army": {
+   "rva": "0x15ab7dc",
+   "verified": false,
+   "status": "static_confirmed_live_instantiated",
+   "note": "profile 原值 `0xcfb1c0` **判伪**（那是 ctor 代码址，形态错）。ctor `FUN_10cfb1c0`(838B) ↔ 新 `FUN_1064ccf0`(871B) 逐条同构（this、+0x160、虚调 +0x18/+0x48、call 0x10d83550↔0x10839e00、+0x14f8、lea+0x14），子表阶梯 +0xb4/+0xd4/+0xe8/+0xfc/+0x110/+0x124/+0x138/+0x14c **两版逐字一致**；类簇 9=9。实机：表体 **12/16 槽落 .text（真表）**、场上 **6 个实例**。",
+   "evidence": [
+    {
+     "kind": "live_needle_scan",
+     "report": "verify_vt_army_15ab7dc_2888.json"
+    }
+   ]
+  },
+  "state_machine_host": {
+   "rva": "0xc22530",
+   "score": 0.735,
+   "verified": false,
+   "status": "static_confirmed",
+   "note": "A1 三个调用点所在函数（新引擎 = FUN_10604260）。本轮加固：host 体内写全 **`+0x50 = 1,2,3,4,5,6,7,8,9,10`** 状态全集（含人类等待态 4），并持有 PRE 链读取（见 pre_chain_root）；位移集合 jaccard 0.735。⚠ new-only 偏移 `+0x254/+0x280`（docs/34-35 的 PB/desc 模板链）在 6118 host 中**不出现** ⇒ PB 那条链不得当同源套用。",
+   "evidence": [
+    {
+     "kind": "contains_3_calls_to_a1",
+     "report": "sites_old_6118_c22530_b93b30.json"
+    },
+    {
+     "kind": "pseudo_code_field_set_calibration",
+     "report": "pseudo_diff_calib.json"
+    }
+   ]
+  },
+  "vt_faction": {
+   "rva": "0x159413c",
+   "score": 0.1832,
+   "verified": true,
+   "status": "live_confirmed",
+   "note": "实机钉死：pid=2888 base=0x5c2e0000，玩家派系对象=0x3d29c2a0（oda），全池 147 个对象、stride 0xB88。★ **本轮重大更正：这个 rva 是派系类的「次基子对象 vptr」（装在 obj+0x78），不是主基 vptr** —— 主基 = `obj − 0x78`、vptr = `vt_faction_primary`。所以过去记的\"字段位移 −0x78\"**不是布局漂移，是锚点差**；改锚到主基后所有字段偏移与新引擎**逐字段相同**。运行时继续用本锚点 + 下列 off 是合法的（值就是从这个锚读出来的），但**不得**据此推断两版布局不同。",
+   "evidence": [
+    {
+     "kind": "classvtable",
+     "note": "候选 0x1593d0c 已判伪（第 7 槽起是 ASCII 串表）"
+    },
+    {
+     "kind": "live_confirmed",
+     "report": "faction_pool_verify_6118_2888.json",
+     "note": "值差分(6000→2621)类内唯一存活 + 明文铁证：+0x4b0 utf16 'factions_screen_name_oda'、+0x590 utf16 'oda'、+0x778 'data\\ui\\flags\\Oda'、+0xa9c utf16 '织 田'"
+    },
+    {
+     "kind": "live_oneread_primary_base",
+     "note": "[0x3d29c2a0 − 0x78] = rva 0x1594178 ✅；且次基+0x484/0x628/0xa9c/0x590/0x778 五字段与主基+0x4fc/0x6a0/0xb14/0x608/0x7f0 **同值**"
+    }
+   ]
+  },
+  "vt_faction_primary": {
+   "rva": "0x1594178",
+   "verified": false,
+   "status": "static_plus_live_oneread",
+   "note": "派系类**主基 vptr**（静态：A 由 ctor 与次基阶梯 +0/+0x1c/+0x34/+0x4c/+0x60/+0x78 两版逐位相同推出，refs(0x1594178) 与 refs(0x159413c) 是同一组 4 函数 ⇒ 同一个类；实机：一元判定命中）。**这是对齐新引擎偏移时该用的锚**：主基 +新引擎偏移 = 现锚 +（偏移−0x78）。尚未正式跑完整 live 序列，故 verified:false。"
+  },
+  "vt_faction_fields": {
+   "rva": null,
+   "verified": true,
+   "status": "live_confirmed",
+   "note": "派系字段偏移（不是代码锚点，随 vt_faction 一起交付给运行时）。off = 相对**现锚 0x159413c（次基）**；primary_off = 相对**主基 0x1594178**，二者恒差 0x78。`new_engine_off` 一栏若与 primary_off 相等 ⇒ 该字段**无漂移**。",
+   "fields": {
+    "treasury": {
+     "off": "0x484",
+     "primary_off": "0x4fc",
+     "new_engine_off": "0x4fc",
+     "drift": "none（旧记 -0x78 系锚点差）",
+     "verified": true,
+     "proof": "6000→2621 两轮取样后，147 个派系对象里唯一等于屏幕余额的 (对象,偏移)；同偏移其余值 5555/500/1000/5000/4555 = 各派系自己的钱"
+    },
+    "human_flag": {
+     "off": "0x628",
+     "primary_off": "0x6a0",
+     "width": "byte",
+     "new_engine_off": "0x6a0",
+     "drift": "none（旧记 -0x78 系锚点差）",
+     "verified": true,
+     "proof": "玩家该字节=1、其余 146 个派系全=0（dword 形态 0x3e000101）"
+    },
+    "name_utf16_ptr": {
+     "off": "0xa9c",
+     "primary_off": "0xb14",
+     "new_engine_off": "0xb14",
+     "drift": "none（旧记 -0x78 系锚点差）",
+     "verified": true,
+     "proof": "解出 utf16 '织 田'（玩家 oda）；其余派系各解出自己的名"
+    },
+    "key_utf16_ptr": {
+     "off": "0x590",
+     "primary_off": "0x608",
+     "new_engine_off": "0x608",
+     "drift": "none",
+     "verified": true,
+     "proof": "utf16 'oda'/'goto'/'honma'… 147 对象互不相同"
+    },
+    "screen_name_key_utf16_ptr": {
+     "off": "0x4b0",
+     "primary_off": "0x528",
+     "verified": true,
+     "proof": "utf16 'factions_screen_name_<key>'"
+    },
+    "flag_path_ptr": {
+     "off": "0x778",
+     "primary_off": "0x7f0",
+     "new_engine_off": "0x7a8",
+     "drift": "REAL −0x30（唯一仍有待解释的一处）",
+     "verified": true,
+     "proof": "'data\\ui\\flags\\<Faction>' 值实机确认。改锚主基后该字段 = +0x7f0，与新引擎 0x7a8 **差 +0x48** ⇒ 这一处不是锚点差，是**真实的类内差异**（新引擎此字段更靠前），保留未决"
+    },
+    "campaign_model_objA": {
+     "off": null,
+     "primary_off": "0x638",
+     "new_engine_off": "0x638",
+     "status": "unresolved",
+     "proof": "主基+0x638（= 现锚 +0x5c0）实机值 = 1575（小整数，不是指针）⇒ 同偏移但**语义不同**，不猜值。另：本 build 的战役模型已由 vt_model=0x15ac334 唯一实例 `0x1a0798a0` 独立抓到，其 +0x638=0x3b71c3e0 是另一个对象的字段 ⇒ 两者不是一回事，别混。"
+    }
+   }
+  },
+  "ui_mirror_campaign_hud": {
+   "rva": "0x16234e0",
+   "verified": true,
+   "status": "live_confirmed",
+   "note": "CampaignHUDInterface（+0x10 明文自证）；+0x54 = 屏幕余额**镜像**，非权威国库。记下以免日后把 UI 镜像当派系金库"
+  },
+  "battle_mgr_slot": {
+   "rva": "0x1b7d978",
+   "verified": true,
+   "status": "live_confirmed",
+   "note": "battle_mgr 全局槽（s2_spectate 观测链入口，6262 = 0x1bc8180）。静态：读点形态 `mov r,[G]; mov r,[r+0x110]` 与 6262 逐字同构（@111618f0），写点上下文含 `+0x110→[+0x281e8]`(issp) 同 6262 `_units_of`。实机（战斗加载后，2026-09-04）：[G]=0x34f6b2c8 → +0x110 env=0x4762d008 → +8 → +0xb4 st=0x380ea790，group/army 全链走通。**选择屏/大地图时无战斗 mgr（读脏值），须战斗加载后才有效**。",
+   "evidence": [
+    {
+     "kind": "live_walk_chain",
+     "note": "战斗实机：mgr→env→e8→st→2 groups→army(4/4 单位)，同 6262 偏移"
+    }
+   ]
+  },
+  "battle_chain_offsets": {
+   "rva": null,
+   "verified": true,
+   "status": "live_confirmed",
+   "note": "6118 战斗观测链偏移（s2_spectate `_units_of`/`_battle_armies_dump` 用，全部相对 battle_mgr 链）：mgr+0x110=env；env+8=e8；e8+0xb4=st；st+0x88=group_cnt/+0x8c=gtbl；group+0x20=army_cnt/+0x24=atbl；army+0x114=单位数(vanilla)；army+0x270=人类byte；army+0x290=float 1.0；unit 表 army+0x118 → unit vt=0x15565b8、unit+0xea8=AI控制。**全部与 6262 同偏移**。issp=env+0x281e8（0=本地参战）。",
+   "evidence": [
+    {
+     "kind": "live_walk_chain",
+     "note": "战斗实机逐级打印见 audit 文档 F1/F2"
+    }
+   ]
+  },
+  "battle_army_vtable": {
+   "rva": "0x1554af0",
+   "verified": true,
+   "status": "live_confirmed",
+   "note": "6118 **战斗层 army** vtable（15/16 槽 .text 真表）。⚠ 与战役层 `vt_army=0x15ab7dc` 是不同类——s2_spectate 若按 ARMY_VTABLE 匹配 battle army 会失败，需区分两层。",
+   "evidence": [
+    {
+     "kind": "live_table_check",
+     "note": "战斗中两支 army [0]=0x1554af0；战场 unit vt=0x15565b8"
+    }
+   ]
+  },
+  "army_faction_getter_caveat": {
+   "rva": null,
+   "verified": false,
+   "status": "unresolved",
+   "note": "6118 battle army +0x260 faction getter 读到 0x66666600（非指针）⇒ 与 6262 布局不一致。该 getter 仅日志 dump 用（_army_faction），主判定阵营过滤走 pending side 链（见 faction_primary_in_battle），不影响写 b9。",
+   "evidence": []
+  },
+  "faction_primary_in_battle": {
+   "rva": "0x1594178",
+   "verified": true,
+   "status": "live_confirmed",
+   "note": "★战斗链中 faction 以**主基 0x1594178** 出现：pending+0x60/0x64 → side → side+0xc → faction(主基)。s2_spectate `_factions_of/_religions_of` 走 +0xc 支即中；**FACTION_VTABLE 常量在 6118 主判定须用主基 0x1594178**（次基 0x159413c 只作旧锚）。名字主基 +0xb14、religion +0x6d4→[+8]、key +0x608 全部同 6262。",
+   "evidence": [
+    {
+     "kind": "live_pending_side_chain",
+     "note": "战斗中 P=0x57ba36b8：织田(oda)/蜂须贺(hachisuka) 均主基"
+    }
+   ]
+  }
+ },
+ "runtime_gap_remaining_20260904": {
+  "C4": "st+0x31f0 在 6118 读出 154208512（≠{0,1}）语义待查（仅诊断日志用）",
+  "C5": "army+0x294 在 6118 恒 0xffffffff(nan) ⇒ dispatcher scale stub 的 [army+0x294]∈[1.0,100.0] 缓存会跳过（fail-closed 降级为不缓存），scale 过滤功能在 6118 暂不可用或需重定该字段",
+  "C6": "army+0x260 faction getter 布局差异（日志用，见 army_faction_getter_caveat）",
+  "defer_stub": "defer 落点已定（defer_landing_site 0xc22e15/写点 0xc22e21）；寄存器角色参数化方案待写（edi=this、ebx=5 常量、eax scratch，见 GOAL map §2.3d）"
+ },
+ "verification_ladder": [
+  "match_score",
+  "asm_isomorphism",
+  "pseudo_code_field_set_calibrated",
+  "derived_call_site",
+  "live_byte_readonly",
+  "live_fail_closed"
+ ],
+ "calibration_gate": {
+  "requirement": "跨 build 只准比「字段位移集合」；地址/字节签名/整体平移一律不许直接比",
+  "evidence": "reports/pseudo_diff_calib.json —— 已知同源配对 setter 1.000 / A1 0.714 / host 0.735（阈值 0.7），控制组 old_bf78b0↔old_cfb1c0 = 0.0943",
+  "conclusion": "位移集合度量校准通过 ⇒ 静态子代理的 0.97/0.90/0.80 可采信（仍缺 live 行为确证）"
+ },
+ "needs_live": [
+  "a1_decision_entry（挂起战斗在场已捕获 this=0x55c00200；行为级 state 序列未验）",
+  "pre_chain_root（vec 元素 vs hdr+0x18/+0x78 的层级差）",
+  "vt_faction_primary 的正式 live 序列",
+  "flag_path_ptr 的 +0x48 真实类内差异",
+  "campaign_model_objA",
+  "defer_landing_site / state6_settlement_write（行为级，需授权写；本轮只做了只读字节核对）",
+  "legacy_callsite_cleanup",
+  "state_machine_host",
+  "state_machine_site_a",
+  "state_machine_site_b",
+  "state_machine_site_c",
+  "state_setter",
+  "vt_model",
+  "vt_army",
+  "setup_builder",
+  "pending_ctor_dispatcher"
+ ],
+ "layout_shift_caution": "★ 已被本轮实机推翻旧表述。**6118↔6262 不存在派系布局漂移**：过去看到的 −0x78 是「锚点选到次基子对象 vptr」造成的（次基在 obj+0x78，主基 vptr=0x1594178）。改锚主基后派系字段与新引擎**逐字段同偏移**，pending/host 一族更是连 A1 都逐行同形。仅存的真实差异：`flag_path_ptr`（主基 +0x7f0 vs 新引擎 0x7a8，差 +0x48）、`campaign_model_objA`（同偏移不同语义）、new-only 的 PB/desc 链（+0x254/+0x280 在 6118 host 不出现）。**禁止再做任何整体平移套用**：新引擎偏移可**直接采用**，但仍须逐字段回读确认对象身份。证据：reports/faction_pool_verify_6118_2888.json、pseudo_diff_calib.json、static_lockdown_vtables_20260904.md §9.5",
+ "refuted": [
+  {
+   "rva": "0x15c2060",
+   "was": "曾按『+0x4fc 像钱 + +0x6a0∈{0,1}』判为派系类，后又列为 vt_pending 候选",
+   "why": "体内 +0x10 明文 'CampaignHUDInterface' ⇒ UI 侧结构。派系真类 = 0x159413c（次基）/0x1594178（主基）；vt_pending 静态候选 = 0x1593424"
+  },
+  {
+   "rva": "0x14ccf34",
+   "was": "候选派系类（135 对象）",
+   "why": "+0x4fc=1568327580 = 指向 Shogun2 镜像的指针 ⇒ 表基/向量，不是派系对象"
+  },
+  {
+   "rva": "0xcfb1c0",
+   "was": "profile 原 vt_army 值",
+   "why": "形态错：那是 ctor `FUN_10cfb1c0` 的代码址，不是 vtable。真表 = 0x15ab7dc（12/16 槽落 .text + 场上 6 实例）"
+  },
+  {
+   "rva": "0x15aba7c",
+   "was": "曾按「A1/model 函数体内 143 个连续指针」猜为 vt_model",
+   "why": "是真 vtable 但属子表 `[+0xe88]`（↔ 新 0x160846c）；所谓连续 143 槽实为 181 张 3 槽子表**倒序紧挨**（0x87c = 181×12）。vt_model = 0x15ac334（↔ 新 0x1607bb4，位于子表 `[+0x0]`）"
+  },
+  {
+   "rva": "0x1692ef8",
+   "was": "曾猜为 manager 表族",
+   "why": "槽窗 [0,0,0xc350,0,0,0x1388]（50000/5000 常量）、code 0/16 ⇒ 数据块不是表"
+  },
+  {
+   "note": "faction+0x9f0/0xa08/0xa20/0xa38 的共享指针链（0xca4330/0xc7e950/0xc7e960/0xc7e970）曾当作 campaign model 反推路线",
+   "why": "逐个查为 **.text 回调址**，不是表 ⇒ 由该链反推 model 的路线判死"
+  },
+  {
+   "note": "对新派系对象的**反向引用**查找（谁指向它）",
+   "why": "全镜像 0 引用 ⇒ 该对象按值/按数组存放，反推通道在此处无效"
+  }
+ ],
+ "dead_end_channels_6118": [
+  "MSVC RTTI 两个 build 都被剥（全文件只有 .?AVtype_info@@/.?AVcom_error@@）⇒ 类名通道死路",
+  "字节签名跨 build 不迁移（已实测 0 命中，见 docs/66）",
+  "派系本地化键在 6118 内存里是 **UTF-16** 且形如 'factions_screen_name_<key>'；用 ASCII 搜旧引擎里没有的 'factions_name' 必得 0 命中",
+  "**盲筛结构谓词**在 1.6GB 堆上不足以定类：本会话连吃三轮假阳性（建筑记录 / start_pos UI / 结构体数组）。典型：`{vtable 形指针, .rdata, 值, .rdata}` 每 0x20 一条的表会被「+0x00 与 +0x4c 双 vptr」判据整批误收 ⇒ 判据必须来自**两版伪代码同形的字段** + ctor 存的 vtable 常量，不能来自形状统计",
+  "**「≥8/16 槽落 .text」硬阈值会误杀真表**：6118 子表在 .rdata 里**倒序**排布、3 槽小表极多（已确证的 vt_model 只有 3/16、vt_pending 候选 3/16）。⇒ 所有普查类数只能当下界；改用 `s2_memscan.vt_ok`（头几槽连续代码 + 总数达标）",
+  "**mincount≥2 的 vtable 普查会结构性隐藏单例**（战役模型就是 1 个实例）⇒ 必须至少跑一遍 mincount=1",
+  "在 host 体内找 `push 5; call setter` 或 `mov [reg+4], imm` 找 defer：**形状过窄必得假阴性**，6118 的真写法是内联 `mov [edi+0x50], ebx`（寄存器 + 0x50 位移）",
+  "Ghidra 导出 `target_<va>.txt` 在 `// === xref 引用函数` **之后是别的函数**的伪代码；截断前引用会把 host 的行为安到 A1 头上（本会话真犯过一次）",
+  "★ **Ghidra 表示法坑（B 复核时先踩一次，属「查不到≠不存在」的机制根因）**：Ghidra 会把 `pending+0x50` 渲染成 `param_1[0x14]`（int* 下标，0x14×4=0x50）、把 `pending+0x4c` 渲染成 `param_1[0x13]` ⇒ **按字面 grep 『0x50』必得 0 命中**。凡按偏移检索伪代码，必须同时搜下标形式与 `+ 0x<N>` 两种写法，否则就是把「表示法不通」误判成「这条通道没有」。同理 host 的 11 处内联状态写、7 处读都在 `decompile_10c22530.txt` 里，先前『0x50 零命中 ⇒ host 不写状态』的负结果已作废。",
+  "另记：A1 `0x10b93b30` **不写**状态字段（纯谓词返回 char）；写 state 8 的是 host `0xc23602`（Ghidra L751）。此前把『A1 写 +0x50=8』当结论属归属错。"
+ ],
+ "spectate": {
+  "schema": "s2_spectate engine-switch machine keys (2026-09-05 static window extract backfill)",
+  "evidence": "reports/spectate_window_extract_20260905.json (NEW-ORIG all self-check pass) + defer_stub_param_plan_20260904.md + audit 20260904 E/F/G",
+  "a1": {
+   "hook_rva": "0xb93b30",
+   "back_rva": "0xb93b35",
+   "orig_bytes": "8a415584c0",
+   "note": "entry 5B window = mov al,[ecx+0x55]; test al,al (two complete instrs, no truncation); this=pending in ecx"
+  },
+  "a1_sites": {
+   "ret_a": "0xc229da",
+   "ret_b": "0xc22a05",
+   "ret_c": "0xc22dfd",
+   "note": "META_RET whitelist: a/b=state-1 decision, c=state-6 prewarm (== 6262 0x6045a4/0x6045c9/0x604936)"
+  },
+  "old_callsite_cleanup": {
+   "hook_rva": null,
+   "note": "6118 has no old call-site hook migration history (6262 0x6045c4 cleanup n/a)"
+  },
+  "vtables": {
+   "vt_pending_rva": "0x1593424",
+   "vt_model_rva": "0x15ac334",
+   "vt_army_rva": "0x15ab7dc",
+   "vt_faction_primary_rva": "0x1594178",
+   "note": "FACTION uses primary base (live battle chain); battle army class 0x1554af0 differs from campaign vt_army"
+  },
+  "dispatcher": {
+   "hook_rva": "0xca01f0",
+   "back_rva": "0xca01f5",
+   "orig_bytes": "83ec205355",
+   "note": "entry 5B = sub esp,0x20; push ebx; push ebp (6262 is sub 0x2c -> param required)"
+  },
+  "setup": {
+   "hook_rva": "0xccd4a0",
+   "back_rva": "0xccd4a6",
+   "orig_bytes": "81ec84000000",
+   "note": "entry 6B = sub esp,0x84 (6262 is sub 0x8c -> param required)"
+  },
+  "defer": {
+   "hook_rva": "0xc22e15",
+   "patch_len": 5,
+   "window_bytes": "8b118b5208",
+   "replay_bytes": "8b118b52088d44241250ffd2",
+   "back_pass_rva": "0xc22e21",
+   "back_defer_rva": "0xc22e24",
+   "state_write_rva": "0xc22e21",
+   "state_write_bytes": "895f50",
+   "merge_rva": "0xc22e24",
+   "merge_bytes": "395f50",
+   "pending_reg": "edi",
+   "pending_saved_slot": 0,
+   "no_clobber": "ebx(=5)",
+   "setter_rva": "0xb92e50",
+   "note": "param design defer_stub_param_plan_20260904.md s2; behavioral live pending"
+  },
+  "state_setter_rva": "0xb92e50",
+  "battle_mgr_slot_rva": "0x1b7d978",
+  "capabilities": {
+   "scale_army_294": false,
+   "scale_note": "C5 army+0x294 nan -> dispatcher scale stub range check skips -> cache empty, fail-closed no-cache; scale filter n/a on 6118 or needs re-anchor",
+   "army_faction_260": false,
+   "army_faction_note": "C6 army+0x260 layout diff (_battle_armies_dump logger getter broken)",
+   "st_31f0": false,
+   "st_31f0_note": "C4 st+0x31f0 reads 154208512, semantics tbd (diagnostic only)"
+  },
+  "obs_offsets_same_as_6262": true,
+  "obs_note": "battle obs chain mgr->env(+0x110)->e8(+8)->st(+0xb4)->group(+0x88/0x8c)->army(+0x20/0x24) + army 0x114/0x270/0x290 + unit 0xea8 + issp env+0x281e8 all live-verified same offsets (audit F1/F2)",
+  "gui_relation_chain_20260905": {
+   "schema": "小地图全开（g5 relation 链）6118 实机同构确认；入口与 6262 不同（无 session 锚复用）",
+   "verified": true,
+   "note": "只读实机（pid 8412 base 0x5bce0000，战役中）：relation 链与 6262 偏移逐字段同构（REL_STRIDE 0x7e4/other@0x4/known@0x7e0/new@0x708/name@0xb14/faction DM@0x53c/dm+8 cnt/dm+0xc base）",
+   "entry_6118": {
+    "local_faction": "faction 池扫主基 0x1594178 → human==1（织田）",
+    "campaign_model": "local+0x8c → [+8]（cm vtable=0x15ac334 实锤）",
+    "faction_array": "cm+0x1498 → arr+0x40 cnt / +0x44 base（151 槽，80/80 vtable 命中）",
+    "cm_b0_note": "cm+0xb0=0（≠6262 的 local faction 直读）→ 6118 入口必须走 faction 池反查，不能复用 session 锚",
+    "dm_ok": "151/151 faction 的 dm/relation 链同构，0 broken"
+   },
+   "ai_watch_manager_table": {
+    "verified": true,
+    "note": "6118 campaign AI manager (obj_A 等价物) 定位实机确证（2026-09-04 夜轮，pid 8412 base 0x5bce0000）",
+    "obj_A_slot": "[cm+0x14b0]  (cm = faction 池 human==1 → +0x8c → [+8]，vt 0x15ac334)",
+    "obj_A_live": "0x41fcdfb0",
+    "obj_A_vt_rva": "0x15d1500",
+    "layout_same_as_6262": "cap@+0x644 / cnt@+0x648 / tbl@+0x64c；obj_B=[obj_A+0x594] → key 表 [+0x11c]/[+0x120]",
+    "cnt_live": 152,
+    "entry_mode": "mode2（key+0x164→faction）151/152 hit；上一轮 0 命中假阴性源 = cnt 上界[30,120]滤掉 152 + key 验证用 6262 常量",
+    "m_semantics_live": "row0 织田 key=0x49ad2bf8 → m=7 HUMAN（+0x6a0=1 一致）；8=DB×149；5/2 各 1",
+    "write_point": "tbl+idx*8+4；AI化=织田行 m→0 + faction+0x6a0→0；恢复=m→7 + 6a0→1",
+    "evidence": "reports/manager_6118_8412_20260904_230807.json + reports/manager_6118_dump_41fcdfb0.json（tools/s2_manager_6118.py）",
+    "open_question": "Phase B 全堆另现多个 {key,m=0} 全 FULL_MANAGER 表（cnt 35/70/140，hit 1.0 mode2）——疑为子 manager 数组，非主表；主表判定以 [cm+0x14b0] 为准（唯一含 HUMAN 行 152 行表）"
+   }
+  }
+ }
+}

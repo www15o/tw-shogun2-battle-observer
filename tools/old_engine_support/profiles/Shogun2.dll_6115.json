@@ -1,0 +1,324 @@
+{
+ "module": "Shogun2.dll",
+ "build": "6115",
+ "build_id_string": "BUILD 6115",
+ "build_id_full": "BUILD 6115(Otomo); CHANGELIST 2219313; 08/03/2021",
+ "generated": true,
+ "auto_adapted": true,
+ "adapt_src": "6118",
+ "source": "第三方寄来（<游戏目录>\\Shogun2DLL.zip 解包）；sha256 5fe83ce6…",
+ "score_gate": 0.55,
+ "image_base_preferred": "0x10000000",
+ "anchors": {
+  "a1_decision_entry": {
+   "rva": "0xb93b10",
+   "score": 1.0,
+   "verified": false,
+   "status": "static_family_match",
+   "entry_bytes": "8a415584c05675083881b90000007416",
+   "family_vs_6118": {
+    "disp_jaccard": 1.0,
+    "imm_jaccard": 1.0,
+    "size_6115": 188,
+    "size_6118": 188,
+    "size_ratio": 1.0
+   }
+  },
+  "state_setter": {
+   "rva": "0xb92e30",
+   "score": 1.0,
+   "verified": false,
+   "status": "static_family_match",
+   "entry_bytes": "8b44240483f80a568bf1894604752c8b",
+   "family_vs_6118": {
+    "disp_jaccard": 1.0,
+    "imm_jaccard": 1.0,
+    "size_6115": 65,
+    "size_6118": 65,
+    "size_ratio": 1.0
+   }
+  },
+  "pending_ctor_dispatcher": {
+   "rva": "0xc9faa0",
+   "score": 1.0,
+   "verified": false,
+   "status": "static_family_match",
+   "entry_bytes": "83ec205355568bf18b8e9c1400005733",
+   "family_vs_6118": {
+    "disp_jaccard": 1.0,
+    "imm_jaccard": 1.0,
+    "size_6115": 1426,
+    "size_6118": 1426,
+    "size_ratio": 1.0
+   }
+  },
+  "setup_builder": {
+   "rva": "0xcccf20",
+   "score": 1.0,
+   "verified": false,
+   "status": "static_family_match",
+   "entry_bytes": "81ec8400000053555633db8bf1895c24",
+   "family_vs_6118": {
+    "disp_jaccard": 1.0,
+    "imm_jaccard": 1.0,
+    "size_6115": 2439,
+    "size_6118": 2439,
+    "size_ratio": 1.0
+   }
+  },
+  "state_machine_site_a": {
+   "rva": "0xc2288a",
+   "verified": false,
+   "status": "derived_from_call_site",
+   "note": "host 内 call-A1 返回址（升序分配 a/b/c），a/b=state-1 决策 / c=state-6 预热需行为级复核"
+  },
+  "state_machine_site_b": {
+   "rva": "0xc228b5",
+   "verified": false,
+   "status": "derived_from_call_site",
+   "note": "host 内 call-A1 返回址（升序分配 a/b/c），a/b=state-1 决策 / c=state-6 预热需行为级复核"
+  },
+  "state_machine_site_c": {
+   "rva": "0xc22cad",
+   "verified": false,
+   "status": "derived_from_call_site",
+   "note": "host 内 call-A1 返回址（升序分配 a/b/c），a/b=state-1 决策 / c=state-6 预热需行为级复核"
+  },
+  "state6_settlement_write": {
+   "rva": "0xc22cd1",
+   "verified": false,
+   "status": "candidate",
+   "merge_rva": "0xc22cd4",
+   "write_bytes": "895f50",
+   "merge_bytes": "395f50",
+   "five_set_at": "0xc22af3",
+   "note": "host 内 mov [r+0x50],rX(5 支配)+cmp [r+0x50],rX 内联结算写形态（家族判据），patch 窗与 stub 几何需人工定（寄存器角色不许照搬 6118）"
+  },
+  "legacy_callsite_cleanup": {
+   "rva": null,
+   "verified": false,
+   "status": "unresolved",
+   "note": "与 6118 相同：全新 build 无旧 call-site hook 迁移历史（仅 6262 需要）"
+  },
+  "vt_pending": {
+   "verified": false,
+   "status": "candidate",
+   "note": "vt_pending 6115 = 6118(0x1593424) −0x18。近邻 ctor FUN_10bf7760(6118 bf78b0 模拟) 存表阶梯配对：6118[0x1593424,0x1593418] ↔ 6115[0x159340c,0x1593400]，子表相对偏移 −0xc 不变；.rdata 本块统一 −0x18（model/army/faction 全同）。仍 verified:false（行为级留实机）。；[6115 live 补记] 普查计数（2）与 6118 对象形态不匹配，且本族各 vtable Δ 非均匀（faction 主基实为 -0x14），此值未获实机确认；battle/挂起相关流程在 6115 本就 fail-closed，无功能依赖，留待有 battle/挂起场景时对象级一元判定",
+   "score": 1.0,
+   "carrier_fn": "0xc03ff0",
+   "carrier_name": "FUN_10c03ff0",
+   "rva": "0x159340c",
+   "evidence": [
+    {
+     "kind": "ctor_store_ladder_pair",
+     "method": "6118近邻ctor同源直配→两侧imm存表阶梯逐行配对",
+     "shift": "region .rdata -0x18 uniform, sub-table -0xc preserved"
+    }
+   ]
+  },
+  "vt_model": {
+   "verified": false,
+   "status": "candidate",
+   "note": "vt_model 6115 = 6118(0x15ac334) −0x18。ctor FUN_10d12910(6118 d12e10) 阶梯 row0 配对 0x15ac334→0x15ac31c，整条子表阶梯(0x15ac328/31c/310/304/2f8…)逐行 −0x18 一致。（上一轮 adapt 的 0x15ac2e0 是阶梯中最大槽行，非主表，作废）；[6115 live 补记] 普查计数（4）与 6118 对象形态不匹配，且本族各 vtable Δ 非均匀（faction 主基实为 -0x14），此值未获实机确认；battle/挂起相关流程在 6115 本就 fail-closed，无功能依赖，留待有 battle/挂起场景时对象级一元判定",
+   "score": 1.0,
+   "carrier_fn": "0xd12910",
+   "carrier_name": "FUN_10d12910",
+   "rva": "0x15ac31c",
+   "code_slots": 16,
+   "slots": 16,
+   "store_disp": "0x64",
+   "store_va": "0xd12938",
+   "ref_6118": "0x15ac334",
+   "evidence": [
+    {
+     "kind": "ctor_store_ladder_pair",
+     "method": "6118近邻ctor同源直配→两侧imm存表阶梯逐行配对",
+     "shift": "region .rdata -0x18 uniform, sub-table -0xc preserved"
+    }
+   ]
+  },
+  "vt_army": {
+   "verified": false,
+   "status": "candidate",
+   "note": "vt_army 6115 = 6118(0x15ab7dc) −0x18。ctor FUN_10cfacc0(6118 cfb1c0) 阶梯 row1 配对 0x15ab7dc→0x15ab7c4（6118 该行 12/16 槽=真表，与 live 判定一致）。旧候选 0x15ab7b4 是阶梯其它行，作废。；[6115 live 补记] 普查计数（495）与 6118 对象形态不匹配，且本族各 vtable Δ 非均匀（faction 主基实为 -0x14），此值未获实机确认；battle/挂起相关流程在 6115 本就 fail-closed，无功能依赖，留待有 battle/挂起场景时对象级一元判定",
+   "score": 1.0,
+   "carrier_fn": "0xcfacc0",
+   "carrier_name": "FUN_10cfacc0",
+   "rva": "0x15ab7c4",
+   "code_slots": 16,
+   "slots": 16,
+   "store_disp": "0x0",
+   "store_va": "0xcfad87",
+   "ref_6118": "0x15ab7dc",
+   "evidence": [
+    {
+     "kind": "ctor_store_ladder_pair",
+     "method": "6118近邻ctor同源直配→两侧imm存表阶梯逐行配对",
+     "shift": "region .rdata -0x18 uniform, sub-table -0xc preserved"
+    }
+   ]
+  },
+  "vt_faction": {
+   "verified": true,
+   "status": "live_confirmed",
+   "note": "6115 实机裁决（pid 20552 base 0x5bc30000 战役中）：u32==0x1594124 命中 150，全部对象 [o-0x78]==0x1594164（主基 150/150）；human 分布 {0:149,1:1}；玩家 oda/织 田 treasury=6000，样例三好/德川/长宗我部/村上 → 对象真身无误。主基静态锁 0x1594160 差 4B（Δ=-0x14 非 -0x18），已修正。",
+   "score": 1.0,
+   "carrier_fn": "0xc27a30",
+   "carrier_name": "FUN_10c27a30",
+   "rva": "0x1594124",
+   "code_slots": 16,
+   "slots": 16,
+   "store_disp": "0x4c",
+   "store_va": "0xc27ae1",
+   "ref_6118": "0x159413c",
+   "secondary_6115": "0x1594124",
+   "primary_6115": "0x1594164",
+   "evidence": [
+    {
+     "kind": "live_faction_pool_adjudication",
+     "report": "work/_tmp_faction_full_6115.py 输出",
+     "sec": "0x1594124",
+     "primary": "0x1594164",
+     "n_objs": 150,
+     "human": "{0:149,1:1}",
+     "player": "oda 织田 treasury=6000"
+    }
+   ]
+  },
+  "vt_faction_primary": {
+   "rva": "0x1594164",
+   "status": "live_confirmed",
+   "verified": true,
+   "note": "faction 主基 vptr（[F]=此值，F+0x78=次基 0x1594124），150/150 实机命中。"
+  }
+ },
+ "derivation": {
+  "host": {
+   "rva": "0xc223e0",
+   "family_vs_6118": {
+    "disp_jaccard": 1.0,
+    "imm_jaccard": 1.0,
+    "size_6115": 15234,
+    "size_6118": 15234,
+    "size_ratio": 1.0
+   }
+  },
+  "a1_call_sites_in_host": [],
+  "defer": {
+   "write_rva": 12725457,
+   "write_bytes": "895f50",
+   "merge_rva": 12725460,
+   "merge_bytes": "395f50",
+   "five_set_at": 12724979
+  }
+ },
+ "inherited_family_offsets": {
+  "note": "结构键**继承自 6118 profile（同族 2021 Otomo）**，未在 6115 实机复核：对象内字段偏移(+0x6a0 human / +0x4fc treasury / name +0xb14 / key +0x608 等)、manager 表 cap/cnt/tbl@objA+0x644/648/64c、objA=[cm+0x14b0]、relation cm+0x1498(+0x40/+0x44)、battle 观测链mgr→env(+0x110)→…、battle_mgr_slot 等。使用前必须逐条实机一元复核；一律 verified:false",
+  "verified": false
+ },
+ "needs_live": [
+  "legacy_callsite_cleanup",
+  "state6_settlement_write",
+  "state_machine_site_a",
+  "state_machine_site_b",
+  "state_machine_site_c",
+  "vt_army",
+  "vt_faction",
+  "vt_model",
+  "vt_pending"
+ ],
+ "note": "6115 与 6118 为近邻同源 build（全部锚函数指纹 1.0，A1/setter 函数体逐字节同前缀）：本 profile 全部为静态候选 verified:false。运行时若启用 6115：detect_build 须按内嵌 BUILD 6115 串区分（模块名与 6118 同为 Shogun2.dll），每个 hook 落点装前做原字节 fail-closed 核对（dispatcher/setup 等入口字节与 6118 不同）。",
+ "classvtable_probe": {
+  "note": "弱通道，仅证明 6115 复现了 6118 的候选/假阳性对（FUN_10e7a7b0↔FUN_10e7f8a0、FUN_10c26920↔FUN_10c26a70 delta -0x150），不用于定值",
+  "pending_55_90_b9": [
+   {
+    "ctor": "FUN_10e7a7b0",
+    "vtable": "0x15c3ec0"
+   },
+   {
+    "ctor": "FUN_10e7ec60",
+    "vtable": "0x15c2008"
+   }
+  ],
+  "faction_6a0_7a8_708": [
+   {
+    "ctor": "FUN_10c26920",
+    "vtable": "0x1593c48"
+   },
+   {
+    "ctor": "FUN_1125b160",
+    "vtable": "0x16108c4"
+   }
+  ]
+ },
+ "spectate": {
+  "schema": "s2_spectate engine-switch machine keys（6115 auto-adapted; verified:false 全静态）",
+  "a1": {
+   "hook_rva": "0xb93b10",
+   "back_rva": "0xb93b15",
+   "orig_bytes": "8a415584c0",
+   "note": "6115 A1 入口（与 6118 函数体同字节同源，RVA -0x20）"
+  },
+  "a1_sites": {
+   "ret_a": "0xc2288a",
+   "ret_b": "0xc228b5",
+   "ret_c": "0xc22cad",
+   "note": "host 内 call-A1 返回址（host 整体 -0x150，与 6118 逐点差 0x150）"
+  },
+  "old_callsite_cleanup": {
+   "hook_rva": null,
+   "note": "同 6118：全新 build 无迁移历史（仅 6262 需要）"
+  },
+  "vtables": {
+   "vt_pending_rva": "0x159340c",
+   "vt_model_rva": "0x15ac31c",
+   "vt_army_rva": "0x15ab7c4",
+   "vt_faction_primary_rva": "0x1594164",
+   "note": "faction 双锚 live 确证（0x1594124/0x1594164）；model/army/pending 未实机确认（battle 族 fail-closed）"
+  },
+  "dispatcher": {
+   "hook_rva": "0xc9faa0",
+   "back_rva": "0xc9faa5",
+   "orig_bytes": "83ec205355",
+   "note": "入口字节直读 6115 文件（与 6118 同 5B 前缀）"
+  },
+  "setup": {
+   "hook_rva": "0xcccf20",
+   "back_rva": "0xcccf26",
+   "orig_bytes": "81ec84000000",
+   "note": "入口字节直读 6115 文件"
+  },
+  "defer": {
+   "hook_rva": "0xc22cc5",
+   "patch_len": 5,
+   "window_bytes": "8b118b5208",
+   "replay_bytes": "8b118b52088d44241250ffd2",
+   "back_pass_rva": "0xc22cd1",
+   "back_defer_rva": "0xc22cd4",
+   "state_write_rva": "0xc22cd1",
+   "state_write_bytes": "895f50",
+   "merge_rva": "0xc22cd4",
+   "merge_bytes": "395f",
+   "pending_reg": "edi",
+   "pending_saved_slot": 0,
+   "no_clobber": "ebx(=5)",
+   "setter_rva": "0xb92e30",
+   "note": "6115 defer 与 6118 同字节形态（窗口/写点/merge 逐字节同，整体 -0x150）；reg 角色同 6118（edi=this/ebx=5 常量）"
+  },
+  "state_setter_rva": "0xb92e30",
+  "battle_mgr_slot_rva": "0x1b7d9bc",
+   "battle_mgr_slot_note": "6115 实机裁决（pid 35468 真实战斗，2026-09-05）：[base+0x1b7d9bc]=mgr=0x40971200 → env(+0x110) → e8(+8) → st(+0xb4)（状态5）全链走通；与 6118(0x1b7d978)/6262(0x1bc8180) 同构。此前 null = 静态未锁；probe_battle_env.BATTLE_ANCHORS 同值（战斗托管用），此处为 spectate 观测链同源键。",
+  "capabilities": {
+   "scale_army_294": false,
+   "scale_note": "同 6118：army+0x294 nan → scale stub 降级 fail-closed",
+   "army_faction_260": false,
+   "army_faction_note": "同 6118：army+0x260 faction getter 布局差异（日志用）",
+   "st_31f0": false,
+   "st_31f0_note": "同 6118：st+0x31f0 语义未定（诊断用）"
+  },
+  "obs_offsets_same_as_6262": true,
+  "obs_note": "battle 观测链偏移与 6118/6262 全同（家族继承，未实机复核）",
+  "auto_adapted": true,
+  "verified": false
+ }
+}
