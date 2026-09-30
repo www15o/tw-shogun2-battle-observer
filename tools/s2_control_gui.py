@@ -30,12 +30,15 @@ import re_b3_inject as b3
 import battle_ai_ctl as ba
 import s2_spectate as spec
 import _g5_relation_write as g5
+import _appinfo
+import _applog
 
 
 class App:
     def __init__(self, root):
         self.root = root
-        root.title("幕府2 控制台 — 加钱 / AI化 / 战斗注入 / 看海捕捉")
+        root.title(f"{_appinfo.APP_NAME_ZH}（{_appinfo.APP_NAME} v{_appinfo.APP_VERSION}）"
+                   " — 加钱 / AI化 / 战斗注入 / 看海捕捉")
         root.geometry("1100x700")
         root.minsize(900, 600)   # ★2026-08-19 最小尺寸（缩放不截断控件）
         self.h = None
@@ -213,14 +216,28 @@ class App:
                                                 font=("Consolas", 9))
         self.logbox.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
+        # 统一日志：面板订阅 _applog —— 工具链的 print() 也会经此显示
+        # （打包后 console=False 没有 stdout，不订阅就全丢）
+        _applog.subscribe(self._append_log)
+
     # ---------- 工具 ----------
-    def log(self, msg):
+    def _append_log(self, line):
+        """_applog 订阅回调（可能来自任意线程）→ 追加到面板。"""
         def _w():
-            self.logbox.config(state="normal")
-            self.logbox.insert(tk.END, msg + "\n")
-            self.logbox.see(tk.END)
-            self.logbox.config(state="disabled")
-        self.root.after(0, _w)
+            try:
+                self.logbox.config(state="normal")
+                self.logbox.insert(tk.END, line + "\n")
+                self.logbox.see(tk.END)
+                self.logbox.config(state="disabled")
+            except tk.TclError:
+                pass
+        try:
+            self.root.after(0, _w)
+        except (RuntimeError, tk.TclError):
+            pass
+
+    def log(self, msg):
+        _applog.emit(msg)
 
     def set_status(self, s):
         self.root.after(0, lambda: self.lbl_status.config(text=s))
@@ -973,11 +990,48 @@ class App:
         self.thread(_w)
 
 
+def _is_admin():
+    """当前进程是否具备管理员权限（写内存的前提）。"""
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
 def main():
+    _applog.install()
+    _applog.emit(f"启动 {_appinfo.title()}")
+
+    if "--selftest" in sys.argv:
+        import _selftest
+        return _selftest.run()
+
+    if not _is_admin():
+        _applog.emit("当前非管理员权限 —— OpenProcess 写内存会失败，请以管理员身份运行", "ADMIN")
+        messagebox.showwarning(
+            _appinfo.APP_NAME,
+            "当前不是管理员权限。\n\n"
+            "本程序需要读写游戏进程内存，请关闭后以「管理员身份运行」。\n"
+            "（继续也可以浏览界面，但连接游戏会失败）")
+
     root = tk.Tk()
     App(root)
     root.mainloop()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    _applog.install()          # 崩溃也要有日志：必须在 try 之前
+    try:
+        sys.exit(main() or 0)
+    except SystemExit:
+        raise
+    except Exception:
+        _text = _applog.crash("main")
+        try:
+            messagebox.showerror(
+                f"{_appinfo.APP_NAME} 崩溃",
+                f"遇到未处理异常，已写入日志：\n{_applog.log_path()}\n\n{_text[-900:]}")
+        except Exception:
+            pass
+        sys.exit(1)

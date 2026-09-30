@@ -99,6 +99,12 @@ else {
     }
     if ($parseErr -eq 0) { Ok ($pyFiles.Count.ToString() + " python files compile") }
 
+    # Build-time generated modules: the private repo's packaging/prepare_build.py writes
+    # these into work/ only while packaging. This repo does NOT ship the packaging chain,
+    # so they can never be present here -- that is expected, not an error.
+    # Keep this list in sync with GENERATED in _release/sync_public.py.
+    $generated = @{ '_version' = $true; '_build_manifest' = $true }
+
     # local module names available in the tree
     $local = @{}
     foreach ($f in $pyFiles) { $local[[System.IO.Path]::GetFileNameWithoutExtension($f.Name)] = $true }
@@ -112,7 +118,9 @@ else {
         }
     }
     $external = @()
-    foreach ($n in $imports.Keys) { if (-not $local.ContainsKey($n)) { $external += $n } }
+    foreach ($n in $imports.Keys) {
+        if ((-not $local.ContainsKey($n)) -and (-not $generated.ContainsKey($n))) { $external += $n }
+    }
 
     if ($external.Count -gt 0) {
         # NOTE: keep the snippet free of quote characters - PS 5.1 mangles them
@@ -135,7 +143,7 @@ else {
         $raw = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8)
         foreach ($m in [regex]::Matches($raw, '(?m)^\s*import\s+([A-Za-z_][A-Za-z0-9_]*)\s+as\s+')) {
             $n = $m.Groups[1].Value
-            if ((-not $local.ContainsKey($n)) -and ($external -notcontains $n)) { $missing += ($f.Name + " -> " + $n) }
+            if ((-not $local.ContainsKey($n)) -and ($external -notcontains $n) -and (-not $generated.ContainsKey($n))) { $missing += ($f.Name + " -> " + $n) }
         }
     }
     if ($missing.Count -gt 0) { $missing | ForEach-Object { Fail ("unresolved local import: " + $_) } }
