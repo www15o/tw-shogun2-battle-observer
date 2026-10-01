@@ -195,10 +195,15 @@ class App:
         _e_money.bind("<FocusOut>", self._on_money_changed)
         _e_money.bind("<Return>", self._on_money_changed)
         ttk.Button(ops, text=_t("ui.btn.set_money"), command=self.cmd_set_money).grid(row=0, column=2, padx=4)
+        self.ic_money_help = _help_icon(ops, "tip.money")
+        self.ic_money_help.grid(row=0, column=6, padx=(6, 0))
 
         # row1 AI化
         ttk.Button(ops, text=_t("ui.btn.ai_ify"), command=self.cmd_ai_ify).grid(row=1, column=1, padx=4)
         ttk.Button(ops, text=_t("ui.btn.restore_human"), command=self.cmd_restore).grid(row=1, column=2, padx=4)
+        # ★目标② 看海：一整区的说明塞进悬停（玩家不知道这一排按钮在干什么）
+        self.ic_goal2_help = _help_icon(ops, "tip.goal2")
+        self.ic_goal2_help.grid(row=1, column=6, padx=(6, 0))
 
         # row2 战斗AI注入
         ttk.Label(ops, text=_t("ui.label.battle_inject")).grid(row=2, column=0, sticky=tk.W)
@@ -207,6 +212,9 @@ class App:
         ttk.Button(ops, text=_t("ui.btn.battle_human"), command=lambda: self.cmd_battle("human")).grid(row=2, column=3, padx=4)
         ttk.Button(ops, text=_t("ui.btn.battle_stop"), command=self.cmd_battle_stop).grid(row=2, column=5, padx=4)
         ttk.Label(ops, text=_t("ui.label.battle_note")).grid(row=2, column=4)
+        # ★目标① 战斗 AI 托管
+        self.ic_goal1_help = _help_icon(ops, "tip.goal1")
+        self.ic_goal1_help.grid(row=2, column=6, padx=(6, 0))
 
         # row3 battle_ai
         ttk.Label(ops, text=_t("ui.label.battle_ai")).grid(row=3, column=0, sticky=tk.W)
@@ -216,7 +224,7 @@ class App:
         ttk.Label(ops, text=_t("ui.label.ba_note")).grid(row=3, column=4)
         # ★battle_ai 风险：一行短提示常驻可见 + 「?」悬停看长文（进程级残留，见 docs/11 §1.1）
         self.ic_ba_help = _help_icon(ops, "tip.battle_ai")
-        self.ic_ba_help.grid(row=3, column=5, padx=(6, 0))
+        self.ic_ba_help.grid(row=3, column=6, padx=(6, 0))
         self.lbl_ba_warn = ttk.Label(root, text=_t("ui.label.ba_warn"), foreground="#c00000")
         self.lbl_ba_warn.pack(fill=tk.X, padx=8, pady=(0, 2))
 
@@ -229,6 +237,9 @@ class App:
         ttk.Checkbutton(ops, text=_t("ui.btn.type_field"), variable=self.var_ct["field"]).grid(row=4, column=2)
         ttk.Checkbutton(ops, text=_t("ui.btn.type_naval"), variable=self.var_ct["naval"]).grid(row=4, column=3)
         ttk.Label(ops, text=_t("ui.label.type_note")).grid(row=4, column=4, columnspan=3, sticky=tk.W)
+        # ★目标③ AI 内战观战/捕捉
+        self.ic_goal3_help = _help_icon(ops, "tip.goal3", wraplength=520)
+        self.ic_goal3_help.grid(row=4, column=7, padx=(6, 0))
 
         # row5 PRE 单位数精确筛（Goal3.1；hdr+0x18/+0x78 含援军）
         # ★2026-08-29 实机验证：PRE 判定与 POST Σ[army+0x114] 一致；海战字段为 0/0，需配海战类型筛跳过
