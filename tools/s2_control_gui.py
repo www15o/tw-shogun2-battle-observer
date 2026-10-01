@@ -164,7 +164,7 @@ class App:
         _hint.pack(fill=tk.X)
         ttk.Label(_hint, text=_t("ui.label.col_hint")).pack(side=tk.LEFT)
         self.ic_col_help = _help_icon(_hint, "tip.columns", wraplength=520)
-        self.ic_col_help.pack(side=tk.LEFT, padx=(4, 0))
+        self.ic_col_help.pack(side=tk.RIGHT, padx=(4, 2))
         cols = ("name", "religion", "human", "treasury", "wl", "bl")
         self.tree = ttk.Treeview(mid, columns=cols, show="headings", height=8,
                                  selectmode="extended")   # ★多选（批量白/黑名单）
@@ -190,6 +190,8 @@ class App:
         # --- 操作区（每功能一行） ---
         ops = ttk.Frame(root, padding=6)
         ops.pack(fill=tk.X)
+        # ★问号列贴右边缘：第 14 列吃掉全部剩余宽度，问号统一放第 15 列（大窗口下才不会被忽略）
+        ops.columnconfigure(14, weight=1)
 
         # row0 金钱
         ttk.Label(ops, text=_t("ui.label.money_amount")).grid(row=0, column=0, sticky=tk.W)
@@ -202,7 +204,7 @@ class App:
         _e_money.bind("<Return>", self._on_money_changed)
         ttk.Button(ops, text=_t("ui.btn.set_money"), command=self.cmd_set_money).grid(row=0, column=2, padx=4)
         self.ic_money_help = _help_icon(ops, "tip.money")
-        self.ic_money_help.grid(row=0, column=6, padx=(6, 0))
+        self.ic_money_help.grid(row=0, column=15, sticky=tk.E, padx=(6, 2))
 
         # row1 ★目标① 战斗 AI 托管（编号顺序必须 ①→②→③ 自上而下）
         ttk.Label(ops, text=_t("ui.label.battle_inject")).grid(row=1, column=0, sticky=tk.W)
@@ -212,7 +214,7 @@ class App:
         ttk.Button(ops, text=_t("ui.btn.battle_stop"), command=self.cmd_battle_stop).grid(row=1, column=5, padx=4)
         ttk.Label(ops, text=_t("ui.label.battle_note")).grid(row=1, column=4)
         self.ic_goal1_help = _help_icon(ops, "tip.goal1")
-        self.ic_goal1_help.grid(row=1, column=6, padx=(6, 0))
+        self.ic_goal1_help.grid(row=1, column=15, sticky=tk.E, padx=(6, 2))
 
         # row2 battle_ai（目标① 的另一条路径）
         ttk.Label(ops, text=_t("ui.label.battle_ai")).grid(row=2, column=0, sticky=tk.W)
@@ -222,14 +224,14 @@ class App:
         ttk.Label(ops, text=_t("ui.label.ba_note")).grid(row=2, column=4)
         # ★battle_ai 风险：一行短提示常驻可见 + 「?」悬停看长文（进程级残留，见 docs/11 §1.1）
         self.ic_ba_help = _help_icon(ops, "tip.battle_ai")
-        self.ic_ba_help.grid(row=2, column=6, padx=(6, 0))
+        self.ic_ba_help.grid(row=2, column=15, sticky=tk.E, padx=(6, 2))
 
         # row3 ★目标② 看海（战役层）
         ttk.Label(ops, text=_t("ui.label.goal2")).grid(row=3, column=0, sticky=tk.W)
         ttk.Button(ops, text=_t("ui.btn.ai_ify"), command=self.cmd_ai_ify).grid(row=3, column=1, padx=4)
         ttk.Button(ops, text=_t("ui.btn.restore_human"), command=self.cmd_restore).grid(row=3, column=2, padx=4)
         self.ic_goal2_help = _help_icon(ops, "tip.goal2")
-        self.ic_goal2_help.grid(row=3, column=6, padx=(6, 0))
+        self.ic_goal2_help.grid(row=3, column=15, sticky=tk.E, padx=(6, 2))
         self.lbl_ba_warn = ttk.Label(root, text=_t("ui.label.ba_warn"), foreground="#c00000")
         self.lbl_ba_warn.pack(fill=tk.X, padx=8, pady=(0, 2))
 
@@ -244,7 +246,7 @@ class App:
         ttk.Label(ops, text=_t("ui.label.type_note")).grid(row=4, column=4, columnspan=3, sticky=tk.W)
         # ★目标③ AI 内战观战/捕捉
         self.ic_goal3_help = _help_icon(ops, "tip.goal3", wraplength=520)
-        self.ic_goal3_help.grid(row=4, column=6, padx=(6, 0))
+        self.ic_goal3_help.grid(row=4, column=15, sticky=tk.E, padx=(6, 2))
 
         # row5 PRE 单位数精确筛（Goal3.1；hdr+0x18/+0x78 含援军）
         # ★2026-08-29 实机验证：PRE 判定与 POST Σ[army+0x114] 一致；海战字段为 0/0，需配海战类型筛跳过
@@ -265,7 +267,7 @@ class App:
                         command=self._toggle_split).grid(row=5, column=8, padx=6)
         ttk.Label(ops, text=_t("ui.label.dyn_note")).grid(row=5, column=9, columnspan=2, sticky=tk.W)
         self.ic_dyn_help = _help_icon(ops, "tip.dyn", wraplength=500)
-        self.ic_dyn_help.grid(row=5, column=12, padx=(6, 0))
+        self.ic_dyn_help.grid(row=5, column=15, sticky=tk.E, padx=(6, 2))
 
         # row6 分类型筛选（默认隐藏；勾选“按类型区分”后显示）
         self._split_widgets = []
@@ -304,7 +306,7 @@ class App:
         ttk.Button(ops, text=_t("ui.btn.clear"), command=self.clear_whitelist).grid(row=7, column=3, padx=2)
         ttk.Label(ops, text=_t("ui.label.whitelist_note")).grid(row=7, column=4, columnspan=4, sticky=tk.W)
         self.ic_wl_help = _help_icon(ops, "tip.whitelist", wraplength=460)
-        self.ic_wl_help.grid(row=7, column=12, padx=(6, 0))
+        self.ic_wl_help.grid(row=7, column=15, sticky=tk.E, padx=(6, 2))
 
         # row8 黑名单
         ttk.Label(ops, text=_t("ui.label.blacklist")).grid(row=8, column=0, sticky=tk.W)
@@ -313,7 +315,7 @@ class App:
         ttk.Button(ops, text=_t("ui.btn.clear"), command=self.clear_blacklist).grid(row=8, column=3, padx=2)
         ttk.Label(ops, text=_t("ui.label.blacklist_note")).grid(row=8, column=4, columnspan=4, sticky=tk.W)
         self.ic_bl_help = _help_icon(ops, "tip.blacklist", wraplength=460)
-        self.ic_bl_help.grid(row=8, column=12, padx=(6, 0))
+        self.ic_bl_help.grid(row=8, column=15, sticky=tk.E, padx=(6, 2))
 
         # row9 操作 + 自动ESC
         ttk.Label(ops, text=_t("ui.label.ops")).grid(row=9, column=0, sticky=tk.W)
@@ -323,7 +325,7 @@ class App:
         ttk.Checkbutton(ops, text=_t("ui.btn.auto_esc"), variable=self.var_esc).grid(row=9, column=3, padx=6)
         # ★操作行只放一个问号：开始/停止 + 已作废的自动ESC 一起解释
         self.ic_ops_help = _help_icon(ops, "tip.spectate", wraplength=520)
-        self.ic_ops_help.grid(row=9, column=12, padx=(6, 0))
+        self.ic_ops_help.grid(row=9, column=15, sticky=tk.E, padx=(6, 2))
 
         # row10 小地图全开（Goal5 L28）
         ttk.Label(ops, text=_t("ui.label.minimap")).grid(row=10, column=0, sticky=tk.W)
@@ -332,7 +334,7 @@ class App:
         ttk.Button(ops, text=_t("ui.btn.status"), command=lambda: self.cmd_g5("status")).grid(row=10, column=3, padx=4)
         ttk.Label(ops, text=_t("ui.label.minimap_note")).grid(row=10, column=4, columnspan=6, sticky=tk.W)
         self.ic_map_help = _help_icon(ops, "tip.minimap", wraplength=520)
-        self.ic_map_help.grid(row=10, column=12, padx=(6, 0))
+        self.ic_map_help.grid(row=10, column=15, sticky=tk.E, padx=(6, 2))
 
         # --- 日志 ---
         self.logbox = scrolledtext.ScrolledText(root, height=8, state="disabled",
