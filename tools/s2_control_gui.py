@@ -38,7 +38,7 @@ import _settings
 
 # 界面壳取词条别名（logs 诊断输出 / 内部异常文本 / 研究性说明保持中文，不走此别名）
 _t = _i18n.t
-_DEFAULT_GEOMETRY = "1100x700"        # 设置缺失 / 几何串非法时的窗口尺寸
+_DEFAULT_GEOMETRY = "1260x760"        # 设置缺失 / 几何串非法时的窗口尺寸（必须 >= 内容所需，见 _release/gui_layout_probe.py）
 _GEOM_RE = re.compile(r"^\d{1,5}x\d{1,5}([+-]-?\d{1,6}[+-]-?\d{1,6})?$")
 
 
@@ -49,7 +49,7 @@ class App:
                        app_zh=_appinfo.APP_NAME_ZH, ver=_appinfo.APP_VERSION))
         # ★设置恢复：窗口几何来自 ui.geometry（非法值由 _geometry_restore 回退默认）
         root.geometry(self._geometry_restore())
-        root.minsize(900, 600)   # ★2026-08-19 最小尺寸（缩放不截断控件）
+        root.minsize(1240, 660)  # ★2026-10-01 最小尺寸改为「内容所需」的下界（旧值 900x600 会截断控件）
         root.protocol("WM_DELETE_WINDOW", self._on_close)   # ★关窗统一保存设置   # ★2026-08-19 最小尺寸（缩放不截断控件）
         self.h = None
         self.base = None
@@ -93,12 +93,14 @@ class App:
         self.cmb_lang.bind("<<ComboboxSelected>>", self._on_lang_pick)
         # ★关于（产品名 / 版本 / 构建时间 / MIT 许可 / 仓库链接）
         ttk.Button(top, text=_t("ui.btn.about"), command=self.cmd_about).pack(side=tk.RIGHT)
+        # ★说明（R1 按键/操作说明：把每个按钮的用途与权限前提讲清楚）
+        ttk.Button(top, text=_t("ui.btn.help"), command=self.cmd_help).pack(side=tk.RIGHT)
 
         # --- 派系列表（★白名单 / 黑名单列） ---
         mid = ttk.Frame(root, padding=6)
         mid.pack(fill=tk.BOTH, expand=True)
         cols = ("name", "religion", "human", "treasury", "wl", "bl")
-        self.tree = ttk.Treeview(mid, columns=cols, show="headings", height=10,
+        self.tree = ttk.Treeview(mid, columns=cols, show="headings", height=8,
                                  selectmode="extended")   # ★多选（批量白/黑名单）
         self.tree.heading("name", text=_t("ui.col.faction"))
         self.tree.heading("religion", text=_t("ui.col.religion"))
@@ -241,7 +243,7 @@ class App:
         ttk.Label(ops, text=_t("ui.label.minimap_note")).grid(row=10, column=4, columnspan=6, sticky=tk.W)
 
         # --- 日志 ---
-        self.logbox = scrolledtext.ScrolledText(root, height=12, state="disabled",
+        self.logbox = scrolledtext.ScrolledText(root, height=8, state="disabled",
                                                 font=("Consolas", 9))
         self.logbox.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
@@ -310,6 +312,13 @@ class App:
                                 _t("dlg.lang.changed.body", lang=name))
         except Exception as e:
             self.log(f"✗ 语言切换失败: {e}")
+
+    def cmd_help(self):
+        """说明（R1）：逐条列出界面操作、前置条件与权限要求。"""
+        try:
+            messagebox.showinfo(_t("help.title"), _t("help.body"))
+        except Exception as e:
+            self.log(f"✗ 说明对话框失败: {e}")
 
     def cmd_about(self):
         """关于：产品名 / 版本 / 构建时间 / MIT 许可 / 仓库链接（读 _appinfo 单一真源）。"""
