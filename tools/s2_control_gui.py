@@ -42,6 +42,66 @@ _DEFAULT_GEOMETRY = "1260x760"        # 设置缺失 / 几何串非法时的窗�
 _GEOM_RE = re.compile(r"^\d{1,5}x\d{1,5}([+-]-?\d{1,6}[+-]-?\d{1,6})?$")
 
 
+class _ToolTip:
+    """悬停提示：指针停在控件上时弹出长文说明（省界面空间；每次显示都取当前语言文案）。"""
+
+    def __init__(self, widget, text_fn, wraplength=460, delay=300):
+        self.widget = widget
+        self.text_fn = text_fn       # 函数，不是字符串：语言切换后仍正确
+        self.wraplength = wraplength
+        self.delay = delay
+        self.tip = None
+        self.after_id = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _cancel(self):
+        if self.after_id:
+            try:
+                self.widget.after_cancel(self.after_id)
+            except Exception:
+                pass
+            self.after_id = None
+
+    def _schedule(self, _e=None):
+        self._cancel()
+        self.after_id = self.widget.after(self.delay, self._show)
+
+    def _show(self):
+        if self.tip is not None:
+            return
+        try:
+            x = self.widget.winfo_rootx() + 14
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+            self.tip = tk.Toplevel(self.widget)
+            self.tip.wm_overrideredirect(True)
+            self.tip.wm_geometry(f'+{x}+{y}')
+            ttk.Label(self.tip, text=self.text_fn(), justify=tk.LEFT,
+                      wraplength=self.wraplength, padding=8,
+                      relief=tk.SOLID, borderwidth=1).pack()
+        except Exception:
+            self.tip = None
+
+    def _hide(self, _e=None):
+        self._cancel()
+        if self.tip is not None:
+            try:
+                self.tip.destroy()
+            except Exception:
+                pass
+            self.tip = None
+
+
+def _help_icon(parent, tip_key, wraplength=460):
+    """问号图标：悬停显示长说明，不占界面空间。返回画布控件（由调用方 grid/pack 摆放）。"""
+    c = tk.Canvas(parent, width=18, height=18, highlightthickness=0, cursor="question_arrow")
+    c.create_oval(1, 1, 17, 17, outline="#888888", fill="#f2f2f2")
+    c.create_text(9, 9, text="?", fill="#333333", font=("Segoe UI", 10, "bold"))
+    _ToolTip(c, lambda: _t(tip_key), wraplength=wraplength)
+    return c
+
+
 class App:
     def __init__(self, root):
         self.root = root
@@ -49,7 +109,7 @@ class App:
                        app_zh=_appinfo.APP_NAME_ZH, ver=_appinfo.APP_VERSION))
         # ★设置恢复：窗口几何来自 ui.geometry（非法值由 _geometry_restore 回退默认）
         root.geometry(self._geometry_restore())
-        root.minsize(1240, 660)  # ★2026-10-01 最小尺寸改为「内容所需」的下界（旧值 900x600 会截断控件）
+        root.minsize(1240, 690)  # ★2026-10-01 最小尺寸改为「内容所需」的下界（旧值 900x600 会截断控件；新增 battle_ai 警示行后内容高 666）
         root.protocol("WM_DELETE_WINDOW", self._on_close)   # ★关窗统一保存设置   # ★2026-08-19 最小尺寸（缩放不截断控件）
         self.h = None
         self.base = None
@@ -154,6 +214,11 @@ class App:
         ttk.Button(ops, text=_t("ui.btn.cancel"), command=lambda: self.cmd_ba("cancel")).grid(row=3, column=2, padx=4)
         ttk.Button(ops, text=_t("ui.btn.status"), command=lambda: self.cmd_ba("status")).grid(row=3, column=3, padx=4)
         ttk.Label(ops, text=_t("ui.label.ba_note")).grid(row=3, column=4)
+        # ★battle_ai 风险：一行短提示常驻可见 + 「?」悬停看长文（进程级残留，见 docs/11 §1.1）
+        self.ic_ba_help = _help_icon(ops, "tip.battle_ai")
+        self.ic_ba_help.grid(row=3, column=5, padx=(6, 0))
+        self.lbl_ba_warn = ttk.Label(root, text=_t("ui.label.ba_warn"), foreground="#c00000")
+        self.lbl_ba_warn.pack(fill=tk.X, padx=8, pady=(0, 2))
 
         # --- ★看海捕捉（类型 / PRE单位数 / 白名单/黑名单 / 操作） ---
         # row4 类型多选
@@ -316,7 +381,7 @@ class App:
     def cmd_help(self):
         """说明（R1）：逐条列出界面操作、前置条件与权限要求。"""
         try:
-            messagebox.showinfo(_t("help.title"), _t("help.body"))
+            messagebox.showinfo(_t("help.title"), _t("help.body") + "\n\n" + _t("help.risk"))
         except Exception as e:
             self.log(f"✗ 说明对话框失败: {e}")
 
@@ -400,7 +465,17 @@ class App:
         self._save_settings()
 
     def _on_close(self):
-        """WM_DELETE_WINDOW：先统一保存设置，再关窗（保存失败也不阻止退出）。"""
+        """WM_DELETE_WINDOW：battle_ai 仍开启时先问一句，再统一保存设置，最后关窗。"""
+        if self._ba_still_on():
+            ans = messagebox.askyesnocancel(_t("dlg.ba_close.title"), _t("dlg.ba_close.body"))
+            if ans is None:
+                return                      # 取消退出
+            if ans:
+                try:
+                    ok, _d = ba.set_battle_ai(self.h, self.base, False)
+                    self.log("✅ 退出前已关闭 battle_ai" if ok else "✗ 退出前关闭 battle_ai 失败（仍为开启态）")
+                except Exception as e:
+                    self.log(f"✗ 退出前关闭 battle_ai 异常: {e}")
         try:
             self._save_settings()
         except Exception:
@@ -409,6 +484,16 @@ class App:
             self.root.destroy()
         except Exception:
             pass
+
+    def _ba_still_on(self):
+        """battle_ai 是否仍处于开启态（未连接游戏 / 校准失败一律当未开启，不打扰退出）。"""
+        if not self.h:
+            return False
+        try:
+            d = ba.describe(self.h, self.base)
+            return bool(d.get("ok") and d.get("value"))
+        except Exception:
+            return False
 
     def _require_game(self):
         if not self.h:
@@ -916,6 +1001,11 @@ class App:
     def cmd_ba(self, mode):
         if not self._require_game():
             return
+        if mode == "inject":
+            # ★开启前确认：battle_ai 是进程级开关，关掉要手动
+            if not messagebox.askyesno(_t("dlg.ba_risk.title"), _t("dlg.ba_risk.body")):
+                self.log("已取消 battle_ai 注入（未写入）")
+                return
         if getattr(self, "engine", None) in ("6118", "6115"):
             # ★2026-09-05 迁移：battle_ai 对象锚点已引擎化（battle_ai_ctl._anchors 按 build 区分；
             # 6115 obj 0x19865a0 / vt 0x1460ab8 实机校准通过）。写入前仍双重校准（vtable+value_id）。
