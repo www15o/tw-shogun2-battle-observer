@@ -62,7 +62,12 @@ $textExt = @('.md', '.py', '.ps1', '.txt', '.json', '.yml', '.yaml', '.cfg', '.t
 $texts = $files | Where-Object { $textExt -contains $_.Extension.ToLower() }
 
 # Absolute drive-letter paths are flagged; bare relative components (e.g. steamapps) are fine.
-$pAbs    = '[A-Za-z]:[\\/]'
+# NOTE: comments in this file must stay ASCII-only. PS 5.1 reads a BOM-less
+# .ps1 as ANSI, so CJK comments decode into garbage that can swallow the next
+# line (observed: $pAbs ended up empty -> -match "" matched every line).
+# The lookbehind keeps URL schemes (https://) and JSON string escapes from
+# being misread as drive-letter paths. Over-broad rules get the gate disabled.
+$pAbs    = '(?<![A-Za-z0-9_.-])[A-Za-z]:[\\/]'
 $pUser   = 'C:[\\/]Users[\\/]'
 $pMail   = '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 $pSecret = '(?i)(api[_-]?key|secret|password|passwd|token)\s*[:=]\s*[\x22\x27]?[A-Za-z0-9._-]{12,}'
@@ -94,7 +99,9 @@ if (-not $pyFiles) { Warn "no .py files found" }
 else {
     $parseErr = 0
     foreach ($f in $pyFiles) {
-        $out = & python -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" $f.FullName 2>&1
+        # cfile -> temp: a bare py_compile would litter the tree with __pycache__
+        $check = 'import py_compile,sys,os,tempfile' + [char]10 + "py_compile.compile(sys.argv[1], cfile=os.path.join(tempfile.gettempdir(), 'dsh_syntax_check.pyc'), doraise=True)"
+        $out = & python -c $check $f.FullName 2>&1
         if ($LASTEXITCODE -ne 0) { Fail ("py_compile: " + $f.FullName.Substring($Root.Length + 1) + " -> " + ($out -join ' ')); $parseErr++ }
     }
     if ($parseErr -eq 0) { Ok ($pyFiles.Count.ToString() + " python files compile") }

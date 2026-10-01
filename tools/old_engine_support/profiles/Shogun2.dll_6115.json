@@ -6,7 +6,7 @@
  "generated": true,
  "auto_adapted": true,
  "adapt_src": "6118",
- "source": "第三方寄来（<游戏目录>\\Shogun2DLL.zip 解包）；sha256 5fe83ce6…",
+ "source": "本地另一份 Shogun2.dll（BUILD 6115 / 2021 Otomo 版）；sha256 5fe83ce6…",
  "score_gate": 0.55,
  "image_base_preferred": "0x10000000",
  "anchors": {

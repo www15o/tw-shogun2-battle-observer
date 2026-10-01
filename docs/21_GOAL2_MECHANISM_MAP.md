@@ -101,7 +101,7 @@ faction + 0x8c  →  [+8]  = campaign model (cm)
 
 ### 2.4 定位缓存
 
-`--cache` 把定位结果写入 `tools/.watch_cache.json`，之后毫秒级执行
+`--cache` 把定位结果写入**工具目录下的** `.watch_cache.json`（运行时生成、不入库），之后毫秒级执行
 （适合 AI 过回合极快的场景）；地址失效（读档 / 重进）自动回退全扫，
 `--recache` 强制重新定位。
 

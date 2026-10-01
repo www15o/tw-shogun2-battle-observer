@@ -15,6 +15,7 @@
 """
 import ctypes
 import os
+import re
 import struct
 import sys
 import threading
@@ -32,15 +33,24 @@ import s2_spectate as spec
 import _g5_relation_write as g5
 import _appinfo
 import _applog
+import _i18n
+import _settings
+
+# 界面壳取词条别名（logs 诊断输出 / 内部异常文本 / 研究性说明保持中文，不走此别名）
+_t = _i18n.t
+_DEFAULT_GEOMETRY = "1100x700"        # 设置缺失 / 几何串非法时的窗口尺寸
+_GEOM_RE = re.compile(r"^\d{1,5}x\d{1,5}([+-]-?\d{1,6}[+-]-?\d{1,6})?$")
 
 
 class App:
     def __init__(self, root):
         self.root = root
-        root.title(f"{_appinfo.APP_NAME_ZH}（{_appinfo.APP_NAME} v{_appinfo.APP_VERSION}）"
-                   " — 加钱 / AI化 / 战斗注入 / 看海捕捉")
-        root.geometry("1100x700")
+        root.title(_t("ui.window.title", app=_appinfo.APP_NAME,
+                       app_zh=_appinfo.APP_NAME_ZH, ver=_appinfo.APP_VERSION))
+        # ★设置恢复：窗口几何来自 ui.geometry（非法值由 _geometry_restore 回退默认）
+        root.geometry(self._geometry_restore())
         root.minsize(900, 600)   # ★2026-08-19 最小尺寸（缩放不截断控件）
+        root.protocol("WM_DELETE_WINDOW", self._on_close)   # ★关窗统一保存设置   # ★2026-08-19 最小尺寸（缩放不截断控件）
         self.h = None
         self.base = None
         self.build = None           # 模块名：empire(6262)/shogun2(6118/6115)
@@ -59,17 +69,30 @@ class App:
         # --- 顶部：连接 + 扫描 + 引擎 ---
         top = ttk.Frame(root, padding=6)
         top.pack(fill=tk.X)
-        ttk.Button(top, text="连接游戏", command=self.cmd_connect).pack(side=tk.LEFT)
-        ttk.Button(top, text="刷新派系", command=self.cmd_scan).pack(side=tk.LEFT, padx=4)
-        self.lbl_status = ttk.Label(top, text="未连接")
+        ttk.Button(top, text=_t("ui.btn.connect"), command=self.cmd_connect).pack(side=tk.LEFT)
+        ttk.Button(top, text=_t("ui.btn.refresh_factions"), command=self.cmd_scan).pack(side=tk.LEFT, padx=4)
+        self.lbl_status = ttk.Label(top, text=_t("ui.status.disconnected"))
         self.lbl_status.pack(side=tk.LEFT, padx=8)
         # ★引擎选择（自动 = 按运行模块检测；手动 = 覆盖/无法识别时备用）
-        ttk.Label(top, text="引擎:").pack(side=tk.LEFT, padx=(12, 2))
-        self.var_engine = tk.StringVar(value="自动")
+        ttk.Label(top, text=_t("ui.label.engine")).pack(side=tk.LEFT, padx=(12, 2))
+        # ★引擎选择恢复（engine.choice：存引擎码，中英界面都能还原）
+        self.var_engine = tk.StringVar(value=self._engine_display(
+            self._engine_code(self._settings_text("engine.choice", "自动"))))
         self.cmb_engine = ttk.Combobox(top, textvariable=self.var_engine, width=10, state="readonly",
-                                       values=("自动", "6262 新引擎", "6118 旧引擎", "6115 旧引擎"))
+                                       values=(_t("ui.engine.auto"), _t("ui.engine.6262"),
+                                               _t("ui.engine.6118"), _t("ui.engine.6115")))
         self.cmb_engine.pack(side=tk.LEFT)
         self.cmb_engine.bind("<<ComboboxSelected>>", self._on_engine_pick)
+        # ★语言切换（显示名取 _i18n.available()；切换写 _settings 的 ui.lang 并提示重启后生效）
+        ttk.Label(top, text=_t("ui.label.language")).pack(side=tk.LEFT, padx=(12, 2))
+        self._lang_names = _i18n.available()
+        self.var_lang = tk.StringVar(value=self._lang_display(_i18n.lang()))
+        self.cmb_lang = ttk.Combobox(top, textvariable=self.var_lang, width=10, state="readonly",
+                                     values=tuple(n for _c, n in self._lang_names))
+        self.cmb_lang.pack(side=tk.LEFT)
+        self.cmb_lang.bind("<<ComboboxSelected>>", self._on_lang_pick)
+        # ★关于（产品名 / 版本 / 构建时间 / MIT 许可 / 仓库链接）
+        ttk.Button(top, text=_t("ui.btn.about"), command=self.cmd_about).pack(side=tk.RIGHT)
 
         # --- 派系列表（★白名单 / 黑名单列） ---
         mid = ttk.Frame(root, padding=6)
@@ -77,12 +100,12 @@ class App:
         cols = ("name", "religion", "human", "treasury", "wl", "bl")
         self.tree = ttk.Treeview(mid, columns=cols, show="headings", height=10,
                                  selectmode="extended")   # ★多选（批量白/黑名单）
-        self.tree.heading("name", text="派系")
-        self.tree.heading("religion", text="阵营/宗教")
-        self.tree.heading("human", text="人类")
-        self.tree.heading("treasury", text="国库")
-        self.tree.heading("wl", text="白名单")
-        self.tree.heading("bl", text="黑名单")
+        self.tree.heading("name", text=_t("ui.col.faction"))
+        self.tree.heading("religion", text=_t("ui.col.religion"))
+        self.tree.heading("human", text=_t("ui.col.human"))
+        self.tree.heading("treasury", text=_t("ui.col.treasury"))
+        self.tree.heading("wl", text=_t("ui.col.whitelist"))
+        self.tree.heading("bl", text=_t("ui.col.blacklist"))
         self.tree.column("name", width=130)
         self.tree.column("religion", width=90, anchor=tk.CENTER)
         self.tree.column("human", width=50)
@@ -92,124 +115,130 @@ class App:
         self.tree.pack(fill=tk.BOTH, expand=True)
         self.tree.bind("<<TreeviewSelect>>", self.on_select)
         self.tree.bind("<Double-1>", self.toggle_whitelist)   # ★双击 = 快速标记白名单
-        self.whitelist = set()                                  # 白名单派系名集合（空=全部捕捉）
-        self.blacklist = set()                                  # 黑名单派系名集合（空=不排除）
+        # ★名单恢复（spectate.whitelist / spectate.blacklist；脏值退化为空集合）
+        self.whitelist = self._settings_names("spectate.whitelist")   # 白名单派系名集合（空=全部捕捉）
+        self.blacklist = self._settings_names("spectate.blacklist")   # 黑名单派系名集合（空=不排除）
 
         # --- 操作区（每功能一行） ---
         ops = ttk.Frame(root, padding=6)
         ops.pack(fill=tk.X)
 
         # row0 金钱
-        ttk.Label(ops, text="国库金额:").grid(row=0, column=0, sticky=tk.W)
-        self.var_money = tk.StringVar(value="50000")
-        ttk.Entry(ops, textvariable=self.var_money, width=12).grid(row=0, column=1)
-        ttk.Button(ops, text="设为国库", command=self.cmd_set_money).grid(row=0, column=2, padx=4)
+        ttk.Label(ops, text=_t("ui.label.money_amount")).grid(row=0, column=0, sticky=tk.W)
+        # ★加钱金额恢复（money.amount）
+        self.var_money = tk.StringVar(value=self._settings_text("money.amount", "50000"))
+        _e_money = ttk.Entry(ops, textvariable=self.var_money, width=12)
+        _e_money.grid(row=0, column=1)
+        # ★金额失焦 / 回车即保存（money.amount）——不依赖是否已连接游戏
+        _e_money.bind("<FocusOut>", self._on_money_changed)
+        _e_money.bind("<Return>", self._on_money_changed)
+        ttk.Button(ops, text=_t("ui.btn.set_money"), command=self.cmd_set_money).grid(row=0, column=2, padx=4)
 
         # row1 AI化
-        ttk.Button(ops, text="AI 化(看海)", command=self.cmd_ai_ify).grid(row=1, column=1, padx=4)
-        ttk.Button(ops, text="恢复人控", command=self.cmd_restore).grid(row=1, column=2, padx=4)
+        ttk.Button(ops, text=_t("ui.btn.ai_ify"), command=self.cmd_ai_ify).grid(row=1, column=1, padx=4)
+        ttk.Button(ops, text=_t("ui.btn.restore_human"), command=self.cmd_restore).grid(row=1, column=2, padx=4)
 
         # row2 战斗AI注入
-        ttk.Label(ops, text="战斗AI注入:").grid(row=2, column=0, sticky=tk.W)
-        ttk.Button(ops, text="全员AI", command=lambda: self.cmd_battle("all-ai")).grid(row=2, column=1)
-        ttk.Button(ops, text="自动托管", command=lambda: self.cmd_battle("auto")).grid(row=2, column=2, padx=4)
-        ttk.Button(ops, text="切回人控", command=lambda: self.cmd_battle("human")).grid(row=2, column=3, padx=4)
-        ttk.Button(ops, text="停止监控", command=self.cmd_battle_stop).grid(row=2, column=5, padx=4)
-        ttk.Label(ops, text="（战斗场景内生效）").grid(row=2, column=4)
+        ttk.Label(ops, text=_t("ui.label.battle_inject")).grid(row=2, column=0, sticky=tk.W)
+        ttk.Button(ops, text=_t("ui.btn.battle_all_ai"), command=lambda: self.cmd_battle("all-ai")).grid(row=2, column=1)
+        ttk.Button(ops, text=_t("ui.btn.battle_auto"), command=lambda: self.cmd_battle("auto")).grid(row=2, column=2, padx=4)
+        ttk.Button(ops, text=_t("ui.btn.battle_human"), command=lambda: self.cmd_battle("human")).grid(row=2, column=3, padx=4)
+        ttk.Button(ops, text=_t("ui.btn.battle_stop"), command=self.cmd_battle_stop).grid(row=2, column=5, padx=4)
+        ttk.Label(ops, text=_t("ui.label.battle_note")).grid(row=2, column=4)
 
         # row3 battle_ai
-        ttk.Label(ops, text="battle_ai:").grid(row=3, column=0, sticky=tk.W)
-        ttk.Button(ops, text="注入", command=lambda: self.cmd_ba("inject")).grid(row=3, column=1)
-        ttk.Button(ops, text="取消", command=lambda: self.cmd_ba("cancel")).grid(row=3, column=2, padx=4)
-        ttk.Button(ops, text="状态", command=lambda: self.cmd_ba("status")).grid(row=3, column=3, padx=4)
-        ttk.Label(ops, text="（战前/战役地图写，战斗加载时消费；重启游戏需重写）").grid(row=3, column=4)
+        ttk.Label(ops, text=_t("ui.label.battle_ai")).grid(row=3, column=0, sticky=tk.W)
+        ttk.Button(ops, text=_t("ui.btn.inject"), command=lambda: self.cmd_ba("inject")).grid(row=3, column=1)
+        ttk.Button(ops, text=_t("ui.btn.cancel"), command=lambda: self.cmd_ba("cancel")).grid(row=3, column=2, padx=4)
+        ttk.Button(ops, text=_t("ui.btn.status"), command=lambda: self.cmd_ba("status")).grid(row=3, column=3, padx=4)
+        ttk.Label(ops, text=_t("ui.label.ba_note")).grid(row=3, column=4)
 
         # --- ★看海捕捉（类型 / PRE单位数 / 白名单/黑名单 / 操作） ---
         # row4 类型多选
-        ttk.Label(ops, text="看海捕捉-类型:").grid(row=4, column=0, sticky=tk.W)
+        ttk.Label(ops, text=_t("ui.label.spectate_type")).grid(row=4, column=0, sticky=tk.W)
         self.var_ct = {"siege": tk.BooleanVar(value=True), "field": tk.BooleanVar(value=False),
                        "naval": tk.BooleanVar(value=False)}
-        ttk.Checkbutton(ops, text="攻城", variable=self.var_ct["siege"]).grid(row=4, column=1)
-        ttk.Checkbutton(ops, text="野战", variable=self.var_ct["field"]).grid(row=4, column=2)
-        ttk.Checkbutton(ops, text="海战", variable=self.var_ct["naval"]).grid(row=4, column=3)
-        ttk.Label(ops, text="（全不选/全选=全捕捉）").grid(row=4, column=4, columnspan=3, sticky=tk.W)
+        ttk.Checkbutton(ops, text=_t("ui.btn.type_siege"), variable=self.var_ct["siege"]).grid(row=4, column=1)
+        ttk.Checkbutton(ops, text=_t("ui.btn.type_field"), variable=self.var_ct["field"]).grid(row=4, column=2)
+        ttk.Checkbutton(ops, text=_t("ui.btn.type_naval"), variable=self.var_ct["naval"]).grid(row=4, column=3)
+        ttk.Label(ops, text=_t("ui.label.type_note")).grid(row=4, column=4, columnspan=3, sticky=tk.W)
 
         # row5 PRE 单位数精确筛（Goal3.1；hdr+0x18/+0x78 含援军）
         # ★2026-08-29 实机验证：PRE 判定与 POST Σ[army+0x114] 一致；海战字段为 0/0，需配海战类型筛跳过
-        ttk.Label(ops, text="PRE单位数:").grid(row=5, column=0, sticky=tk.W)
-        ttk.Label(ops, text="总≥").grid(row=5, column=1, sticky=tk.E)
+        ttk.Label(ops, text=_t("ui.label.pre_units")).grid(row=5, column=0, sticky=tk.W)
+        ttk.Label(ops, text=_t("ui.label.pre_total")).grid(row=5, column=1, sticky=tk.E)
         self.var_pre_total = tk.StringVar(value="0")
         ttk.Entry(ops, textvariable=self.var_pre_total, width=5).grid(row=5, column=2, sticky=tk.W)
-        ttk.Label(ops, text="每方≥").grid(row=5, column=3, sticky=tk.E)
+        ttk.Label(ops, text=_t("ui.label.pre_per_side")).grid(row=5, column=3, sticky=tk.E)
         self.var_pre_per_side = tk.StringVar(value="0")
         ttk.Entry(ops, textvariable=self.var_pre_per_side, width=5).grid(row=5, column=4, sticky=tk.W)
         self.var_dyn = tk.BooleanVar(value=False)   # ★动态决战：80% 最大规模下限 + 双方 1:2
-        ttk.Checkbutton(ops, text="动态决战", variable=self.var_dyn).grid(row=5, column=5, padx=6)
-        self.lbl_dyn = ttk.Label(ops, text="基准:0 下限:0")
+        ttk.Checkbutton(ops, text=_t("ui.btn.dyn_decisive"), variable=self.var_dyn).grid(row=5, column=5, padx=6)
+        self.lbl_dyn = ttk.Label(ops, text=_t("ui.label.dyn_base", max_total=0, floor=0))
         self.lbl_dyn.grid(row=5, column=6, sticky=tk.W)
-        ttk.Button(ops, text="重置基准", command=self.cmd_dyn_reset).grid(row=5, column=7, padx=4)
+        ttk.Button(ops, text=_t("ui.btn.dyn_reset"), command=self.cmd_dyn_reset).grid(row=5, column=7, padx=4)
         self.var_split = tk.BooleanVar(value=False)  # ★按类型区分野战/攻城
-        ttk.Checkbutton(ops, text="按类型区分", variable=self.var_split,
+        ttk.Checkbutton(ops, text=_t("ui.btn.split_type"), variable=self.var_split,
                         command=self._toggle_split).grid(row=5, column=8, padx=6)
-        ttk.Label(ops, text="（80%+1:2；海战0/0用类型筛）").grid(row=5, column=9, columnspan=2, sticky=tk.W)
+        ttk.Label(ops, text=_t("ui.label.dyn_note")).grid(row=5, column=9, columnspan=2, sticky=tk.W)
 
         # row6 分类型筛选（默认隐藏；勾选“按类型区分”后显示）
         self._split_widgets = []
         _sw = self._split_widgets
-        _w = ttk.Label(ops, text="分类型:")
+        _w = ttk.Label(ops, text=_t("ui.label.split"))
         _w.grid(row=6, column=0, sticky=tk.W); _sw.append(_w)
-        _w = ttk.Label(ops, text="野总≥")
+        _w = ttk.Label(ops, text=_t("ui.label.split_field_total"))
         _w.grid(row=6, column=1, sticky=tk.E); _sw.append(_w)
         self.var_pre_total_field = tk.StringVar(value="0")
         _w = ttk.Entry(ops, textvariable=self.var_pre_total_field, width=5)
         _w.grid(row=6, column=2, sticky=tk.W); _sw.append(_w)
-        _w = ttk.Label(ops, text="野每方≥")
+        _w = ttk.Label(ops, text=_t("ui.label.split_field_side"))
         _w.grid(row=6, column=3, sticky=tk.E); _sw.append(_w)
         self.var_pre_per_side_field = tk.StringVar(value="0")
         _w = ttk.Entry(ops, textvariable=self.var_pre_per_side_field, width=5)
         _w.grid(row=6, column=4, sticky=tk.W); _sw.append(_w)
-        _w = ttk.Label(ops, text="城总≥")
+        _w = ttk.Label(ops, text=_t("ui.label.split_siege_total"))
         _w.grid(row=6, column=5, sticky=tk.E); _sw.append(_w)
         self.var_pre_total_siege = tk.StringVar(value="0")
         _w = ttk.Entry(ops, textvariable=self.var_pre_total_siege, width=5)
         _w.grid(row=6, column=6, sticky=tk.W); _sw.append(_w)
-        _w = ttk.Label(ops, text="城每方≥")
+        _w = ttk.Label(ops, text=_t("ui.label.split_siege_side"))
         _w.grid(row=6, column=7, sticky=tk.E); _sw.append(_w)
         self.var_pre_per_side_siege = tk.StringVar(value="0")
         _w = ttk.Entry(ops, textvariable=self.var_pre_per_side_siege, width=5)
         _w.grid(row=6, column=8, sticky=tk.W); _sw.append(_w)
-        _w = ttk.Label(ops, text="（勾选后野战/攻城分开筛选与动态基准）")
+        _w = ttk.Label(ops, text=_t("ui.label.split_note"))
         _w.grid(row=6, column=9, columnspan=2, sticky=tk.W); _sw.append(_w)
         for _w in self._split_widgets:
             _w.grid_remove()
 
         # row7 白名单
-        ttk.Label(ops, text="白名单:").grid(row=7, column=0, sticky=tk.W)
-        ttk.Button(ops, text="标记选中", command=self.mark_whitelist_sel).grid(row=7, column=1)
-        ttk.Button(ops, text="全选", command=self.whitelist_all).grid(row=7, column=2, padx=2)
-        ttk.Button(ops, text="清空", command=self.clear_whitelist).grid(row=7, column=3, padx=2)
-        ttk.Label(ops, text="（列表多选/Ctrl/Shift + 标记选中；无白名单=全部捕捉）").grid(row=7, column=4, columnspan=4, sticky=tk.W)
+        ttk.Label(ops, text=_t("ui.label.whitelist")).grid(row=7, column=0, sticky=tk.W)
+        ttk.Button(ops, text=_t("ui.btn.mark_selected"), command=self.mark_whitelist_sel).grid(row=7, column=1)
+        ttk.Button(ops, text=_t("ui.btn.select_all"), command=self.whitelist_all).grid(row=7, column=2, padx=2)
+        ttk.Button(ops, text=_t("ui.btn.clear"), command=self.clear_whitelist).grid(row=7, column=3, padx=2)
+        ttk.Label(ops, text=_t("ui.label.whitelist_note")).grid(row=7, column=4, columnspan=4, sticky=tk.W)
 
         # row8 黑名单
-        ttk.Label(ops, text="黑名单:").grid(row=8, column=0, sticky=tk.W)
-        ttk.Button(ops, text="标记选中", command=self.mark_blacklist_sel).grid(row=8, column=1)
-        ttk.Button(ops, text="全选", command=self.blacklist_all).grid(row=8, column=2, padx=2)
-        ttk.Button(ops, text="清空", command=self.clear_blacklist).grid(row=8, column=3, padx=2)
-        ttk.Label(ops, text="（黑名单派系参与的战斗不捕捉；白名单与黑名单同时存在时黑名单优先）").grid(row=8, column=4, columnspan=4, sticky=tk.W)
+        ttk.Label(ops, text=_t("ui.label.blacklist")).grid(row=8, column=0, sticky=tk.W)
+        ttk.Button(ops, text=_t("ui.btn.mark_selected"), command=self.mark_blacklist_sel).grid(row=8, column=1)
+        ttk.Button(ops, text=_t("ui.btn.select_all"), command=self.blacklist_all).grid(row=8, column=2, padx=2)
+        ttk.Button(ops, text=_t("ui.btn.clear"), command=self.clear_blacklist).grid(row=8, column=3, padx=2)
+        ttk.Label(ops, text=_t("ui.label.blacklist_note")).grid(row=8, column=4, columnspan=4, sticky=tk.W)
 
         # row9 操作 + 自动ESC
-        ttk.Label(ops, text="操作:").grid(row=9, column=0, sticky=tk.W)
-        ttk.Button(ops, text="开始捕捉", command=self.cmd_spectate_start).grid(row=9, column=1, padx=4)
-        ttk.Button(ops, text="停止", command=self.cmd_spectate_stop).grid(row=9, column=2)
+        ttk.Label(ops, text=_t("ui.label.ops")).grid(row=9, column=0, sticky=tk.W)
+        ttk.Button(ops, text=_t("ui.btn.spectate_start"), command=self.cmd_spectate_start).grid(row=9, column=1, padx=4)
+        ttk.Button(ops, text=_t("ui.btn.spectate_stop"), command=self.cmd_spectate_stop).grid(row=9, column=2)
         self.var_esc = tk.BooleanVar(value=False)   # ★默认关（用户否决后置 ESC）
-        ttk.Checkbutton(ops, text="自动ESC", variable=self.var_esc).grid(row=9, column=3, padx=6)
+        ttk.Checkbutton(ops, text=_t("ui.btn.auto_esc"), variable=self.var_esc).grid(row=9, column=3, padx=6)
 
         # row10 小地图全开（Goal5 L28）
-        ttk.Label(ops, text="小地图全开:").grid(row=10, column=0, sticky=tk.W)
-        ttk.Button(ops, text="全量known开图", command=lambda: self.cmd_g5("apply")).grid(row=10, column=1)
-        ttk.Button(ops, text="恢复known", command=lambda: self.cmd_g5("restore")).grid(row=10, column=2, padx=4)
-        ttk.Button(ops, text="状态", command=lambda: self.cmd_g5("status")).grid(row=10, column=3, padx=4)
-        ttk.Label(ops, text="（写全量 relation+0x7e0=1；写后需手动切一次小地图标签触发重建）").grid(row=10, column=4, columnspan=6, sticky=tk.W)
+        ttk.Label(ops, text=_t("ui.label.minimap")).grid(row=10, column=0, sticky=tk.W)
+        ttk.Button(ops, text=_t("ui.btn.minimap_apply"), command=lambda: self.cmd_g5("apply")).grid(row=10, column=1)
+        ttk.Button(ops, text=_t("ui.btn.minimap_restore"), command=lambda: self.cmd_g5("restore")).grid(row=10, column=2, padx=4)
+        ttk.Button(ops, text=_t("ui.btn.status"), command=lambda: self.cmd_g5("status")).grid(row=10, column=3, padx=4)
+        ttk.Label(ops, text=_t("ui.label.minimap_note")).grid(row=10, column=4, columnspan=6, sticky=tk.W)
 
         # --- 日志 ---
         self.logbox = scrolledtext.ScrolledText(root, height=12, state="disabled",
@@ -239,11 +268,138 @@ class App:
     def log(self, msg):
         _applog.emit(msg)
 
+    def _ui(self, fn):
+        """把 fn 排到 UI 线程。
+
+        工作线程在窗口销毁后调 root.after 会抛 TclError；若不在调用点兜住，
+        异常会落在**工作线程**里（弹 traceback / 被 threading.excepthook 记走），
+        而主流程其实已经正常退出。这里统一静默丢弃。
+        """
+        try:
+            self.root.after(0, fn)
+        except (RuntimeError, tk.TclError):
+            pass
+
     def set_status(self, s):
-        self.root.after(0, lambda: self.lbl_status.config(text=s))
+        self._ui(lambda: self.lbl_status.config(text=s))
 
     def thread(self, fn, *args):
         threading.Thread(target=fn, args=args, daemon=True).start()
+
+    # ---------- ★关于 / 语言切换（界面壳；不涉及任何内存读写） ----------
+    @staticmethod
+    def _lang_display(code):
+        """语言码 → 下拉显示名（来自 _i18n.available()；未知码回退为码本身）。"""
+        for c, name in _i18n.available():
+            if c == code:
+                return name
+        return str(code)
+
+    def _on_lang_pick(self, _evt=None):
+        """语言下拉：写 _settings(ui.lang)；界面壳已构建，故提示重启后生效。"""
+        try:
+            name = self.var_lang.get()
+            code = next((c for c, n in self._lang_names if n == name), None)
+            if not code or code == _i18n.lang():
+                return
+            _i18n.set_lang(code)      # 内存切换 + 落盘（_i18n 内部调 _settings.set 并丢弃结果）
+            # 复写一次同一值以取回落盘结果（幂等）：失败要可见，但不弹窗打扰切换动作
+            if not _settings.set("ui.lang", code):
+                self.log("⚠️ 语言设置保存失败（本次会话仍生效，重启会丢）")
+            messagebox.showinfo(_t("dlg.lang.changed.title"),
+                                _t("dlg.lang.changed.body", lang=name))
+        except Exception as e:
+            self.log(f"✗ 语言切换失败: {e}")
+
+    def cmd_about(self):
+        """关于：产品名 / 版本 / 构建时间 / MIT 许可 / 仓库链接（读 _appinfo 单一真源）。"""
+        try:
+            body = "\n".join([
+                f"{_t('about.product')}: "
+                f"{_t('about.product_value', app=_appinfo.APP_NAME, app_zh=_appinfo.APP_NAME_ZH)}",
+                f"{_t('about.version')}: v{_appinfo.APP_VERSION}",
+                f"{_t('about.build_time')}: {_appinfo.BUILD_TIME or _t('about.unknown_build')}",
+                f"{_t('about.license')}: {_t('about.license_value')}",
+                f"{_t('about.repository')}: {_t('about.repo_url')}",
+                "",
+                _t("about.tagline"),
+            ])
+            messagebox.showinfo(_t("about.title"), body)
+        except Exception as e:
+            self.log(f"✗ 关于对话框失败: {e}")
+
+    # ---------- ★设置持久化（_settings；只存用户偏好，不碰任何内存读写逻辑） ----------
+    @staticmethod
+    def _settings_text(key, default):
+        """取设置项 → 字符串（_settings 自身已容错；此处只做类型收敛）。"""
+        try:
+            v = _settings.get(key, default)
+        except Exception:
+            return default
+        return default if v is None else str(v)
+
+    @staticmethod
+    def _settings_names(key):
+        """取名单设置项 → set[str]；非列表 / 非字符串项一律忽略（坏设置不许带崩界面）。"""
+        try:
+            v = _settings.get(key, [])
+        except Exception:
+            return set()
+        if not isinstance(v, (list, tuple, set)):
+            return set()
+        return {x for x in v if isinstance(x, str) and x}
+
+    @classmethod
+    def _geometry_restore(cls):
+        """启动几何（ui.geometry）：缺失 / 非法串一律回退默认，避免 Tk 直接报错。"""
+        geom = cls._settings_text("ui.geometry", _DEFAULT_GEOMETRY)
+        return geom if _GEOM_RE.match(geom) else _DEFAULT_GEOMETRY
+
+    def _geometry_spec(self):
+        """当前窗口几何（保存用）；拿不到 / 格式异常 → 默认值。"""
+        try:
+            g = self.root.geometry()
+        except Exception:
+            return _DEFAULT_GEOMETRY
+        return g if _GEOM_RE.match(g or "") else _DEFAULT_GEOMETRY
+
+    def _save_settings(self):
+        """把界面状态写入 _settings（一次原子落盘）；失败有可见反馈，绝不抛异常。
+
+        保存项：几何尺寸 / 引擎选择 / 加钱金额 / 看海白名单 / 看海黑名单。
+        引擎存引擎码（'6262'/'6118'/'6115'，自动 = '自动'）——与 _settings.DEFAULTS 一致，
+        且与界面语言无关，切到英文后仍能正确恢复。
+        """
+        try:
+            data = {
+                "ui.geometry": self._geometry_spec(),
+                "engine.choice": self._engine_choice() or "自动",
+                "money.amount": self.var_money.get(),
+                "spectate.whitelist": sorted(self.whitelist),
+                "spectate.blacklist": sorted(self.blacklist),
+            }
+        except Exception as e:
+            self.log(f"⚠️ 设置采集失败（本次不保存）: {e}")
+            return False
+        ok = _settings.update(data)
+        if not ok:
+            self.log(f"⚠️ 设置保存失败（本次会话仍生效，重启会丢）：{_settings.path()}")
+        return ok
+
+    def _on_money_changed(self, _evt=None):
+        """加钱金额输入框失焦 / 回车 → 保存 money.amount（与连接状态无关）。"""
+        self._save_settings()
+
+    def _on_close(self):
+        """WM_DELETE_WINDOW：先统一保存设置，再关窗（保存失败也不阻止退出）。"""
+        try:
+            self._save_settings()
+        except Exception:
+            pass
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
     def _require_game(self):
         if not self.h:
@@ -257,16 +413,26 @@ class App:
             return False
         return True
 
-    def _engine_choice(self):
-        """手动选择的引擎（'6262'/'6118'/'6115'）；'自动' → None。"""
-        v = self.var_engine.get()
-        if v.startswith("6262"):
-            return "6262"
-        if v.startswith("6118"):
-            return "6118"
-        if v.startswith("6115"):
-            return "6115"
+    @staticmethod
+    def _engine_code(text):
+        """显示名 → 引擎码（'6262'/'6118'/'6115'）；'自动' / 'Auto' / 未知 → None。
+
+        用数字前缀识别，故中英两种显示名与 settings 里存的旧值都能还原。
+        """
+        s = str(text or "")
+        for code in ("6262", "6118", "6115"):
+            if s.startswith(code):
+                return code
         return None
+
+    @staticmethod
+    def _engine_display(code):
+        """引擎码 → 当前语言的显示名；None / '自动' → 自动项。"""
+        return _t("ui.engine." + code) if code in ("6262", "6118", "6115") else _t("ui.engine.auto")
+
+    def _engine_choice(self):
+        """手动选择的引擎（'6262'/'6118'/'6115'）；自动 → None。"""
+        return self._engine_code(self.var_engine.get())
 
     def _detected_engine(self):
         """按运行进程识别的引擎（empire=6262；shogun2=读 BUILD 串区分 6115/6118）。"""
@@ -288,6 +454,7 @@ class App:
             self.log(f"▶ 引擎已设为 {eng}，点「连接游戏」应用")
         else:
             self.log("▶ 引擎已设为自动（连接时按运行模块+BUILD 串识别）")
+        self._save_settings()   # ★引擎选择即时保存（engine.choice）
 
     def _resolve_engine(self, build):
         """返回 (engine, note)。note 非空=需展示给用户的提示。
@@ -333,7 +500,7 @@ class App:
                 pb.K32.CloseHandle(h)
                 self.h = None
                 self.log(f"✗ 引擎冲突/未识别：{note}")
-                self.set_status("未连接（引擎待定）")
+                self.set_status(_t("ui.status.engine_pending"))
                 return
             self.engine = eng
             self._mgr_cache = {}
@@ -353,7 +520,7 @@ class App:
                 self.log(f"✓ 战斗锚点已装配：引擎 {eng} battle_mgr槽=0x{b3.RVA_MGR:x}")
             except Exception as e:
                 self.log(f"⚠️ 战斗锚点装配异常: {e}")
-            self.set_status(f"PID={pid} 引擎={eng} ({build}) base=0x{base:08x}")
+            self.set_status(_t("ui.status.connected", pid=pid, eng=eng, build=build, base=f"0x{base:08x}"))
             self.log(f"✓ 已连接 PID={pid} 引擎={eng}（模块 {build}）base=0x{base:08x}" + (f"｜{note}" if note else ""))
             if eng in ("6118", "6115"):
                 self.log(f"ℹ️ 旧引擎 {eng} 路径：AI化/恢复走 cm→obj_A 链；小地图全开走 faction 池→cm→relation；"
@@ -373,7 +540,7 @@ class App:
             facs = sw.scan_factions(self.h, self.base, faction_vtable_rva=fvt)
             self.facs = facs
             self.religions = {fa: spec.faction_religion_display(self.h, fa) for fa, _, _, _ in facs}
-            self.root.after(0, self._fill_tree)
+            self._ui(self._fill_tree)
             self.log(f"✓ 扫描到 {len(facs)} 个派系")
         except Exception as e:
             self.log(f"✗ 扫描异常: {e}")
@@ -504,6 +671,7 @@ class App:
         except ValueError:
             self.log("✗ 金额无效")
             return
+        self._save_settings()   # ★金额即时保存（money.amount；无效输入不保存）
         self.thread(self._set_money, amt)
 
     def _set_money(self, amt):
@@ -516,7 +684,7 @@ class App:
             back = pb.read_u32(self.h, fa + 0x4fc)
             ok = ok and got.value == 4 and back == amt
             self.log(f"国库 {name!r}: {tr} → {amt} 回读={back} {'✅' if ok else '✗'}")
-            self.set_status(f"{name} 国库={back}")
+            self.set_status(_t("ui.status.money_set", name=name, back=back))
         except Exception as e:
             self.log(f"✗ 加钱异常: {e}（游戏重启/进程变更会失效，请重新连接）")
 
@@ -633,7 +801,7 @@ class App:
                 self.log(f"✅ AI化(看海) {name!r}：+0x6a0=0 + FULL_MANAGER（可点「恢复人控」还原）")
             else:
                 self.log(f"⚠️ AI化 {name!r} 部分失败，检查回读")
-            self.set_status(f"{name} 已 AI化 human=0")
+            self.set_status(_t("ui.status.ai_ified", name=name))
         except Exception as e:
             self.log(f"✗ AI化异常: {e}（游戏重启/进程变更会失效，请重新连接）")
 
@@ -664,7 +832,7 @@ class App:
                 self.log(f"✅ 恢复人控 {name!r}：+0x6a0=1 + HUMAN")
             else:
                 self.log(f"⚠️ 恢复 {name!r} 部分失败，检查回读")
-            self.set_status(f"{name} 已恢复 human=1")
+            self.set_status(_t("ui.status.restored", name=name))
         except Exception as e:
             self.log(f"✗ 恢复异常: {e}（游戏重启/进程变更会失效，请重新连接）")
 
@@ -874,11 +1042,12 @@ class App:
         self.log("动态决战基准已重置（野战/攻城/总计）")
 
     def _update_dyn_label(self, max_total, floor):
-        self.root.after(0, lambda: self.lbl_dyn.config(text=f"基准:{max_total} 下限:{floor}"))
+        self._ui(lambda: self.lbl_dyn.config(text=_t("ui.label.dyn_base", max_total=max_total, floor=floor)))
 
     def _update_dyn_label_split(self, field_max, siege_max):
-        self.root.after(0, lambda: self.lbl_dyn.config(
-            text=f"野基准:{field_max} 城基准:{siege_max} 野下限:{int(field_max * 0.8)} 城下限:{int(siege_max * 0.8)}"))
+        self._ui(lambda: self.lbl_dyn.config(
+            text=_t("ui.label.dyn_base_split", field_max=field_max, siege_max=siege_max,
+                               field_floor=int(field_max * 0.8), siege_floor=int(siege_max * 0.8))))
 
     def _on_dyn_update(self, data, floor=None):
         if isinstance(data, dict):
@@ -1010,9 +1179,7 @@ def main():
         _applog.emit("当前非管理员权限 —— OpenProcess 写内存会失败，请以管理员身份运行", "ADMIN")
         messagebox.showwarning(
             _appinfo.APP_NAME,
-            "当前不是管理员权限。\n\n"
-            "本程序需要读写游戏进程内存，请关闭后以「管理员身份运行」。\n"
-            "（继续也可以浏览界面，但连接游戏会失败）")
+            _t("dlg.admin.body"))
 
     root = tk.Tk()
     App(root)
@@ -1030,8 +1197,8 @@ if __name__ == "__main__":
         _text = _applog.crash("main")
         try:
             messagebox.showerror(
-                f"{_appinfo.APP_NAME} 崩溃",
-                f"遇到未处理异常，已写入日志：\n{_applog.log_path()}\n\n{_text[-900:]}")
+                _t("dlg.crash.title", app=_appinfo.APP_NAME),
+                _t("dlg.crash.body", path=_applog.log_path(), trace=_text[-900:]))
         except Exception:
             pass
         sys.exit(1)

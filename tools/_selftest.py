@@ -8,7 +8,7 @@
   1. 版本 / 构建时间 / frozen 状态
   2. 依赖模块逐个 import      <- 等价于验证 hiddenimports 完整
   3. 内置资源可读（引擎 profile / VERSION）
-  4. 第三方依赖（numpy / capstone）
+  4. 第三方依赖（numpy 必需 / capstone 可选）
   5. 管理员权限               <- 仅报告，**不作为失败条件**
 
 注意：`console=False` 的 exe 没有 stdout，因此结果同时写入日志文件，
@@ -29,7 +29,10 @@ FALLBACK_MODULES = [
     "re_c2_faction",
 ]
 
-THIRD_PARTY = ["numpy", "capstone"]
+# numpy 是运行托管/看海/观战所必需；capstone 只有静态反汇编模式（re_lib / re_b3_inject --dry）
+# 才用得到 —— README 也这么写。所以它只警告、不算失败（否则一份"只用 numpy"的安装会被判 FAIL）。
+THIRD_PARTY = ["numpy"]
+OPTIONAL_THIRD_PARTY = ["capstone"]
 
 
 def required_modules():
@@ -66,6 +69,12 @@ def _check_modules():
 
 def _check_third_party():
     ok = True
+    for name in OPTIONAL_THIRD_PARTY:
+        try:
+            m = __import__(name)
+            print(f"  [ok]   {name} {getattr(m, '__version__', '?')}")
+        except Exception as e:
+            print(f"  [warn] {name} 缺失（仅静态反汇编模式需要，不算失败）-> {type(e).__name__}: {e}")
     for name in THIRD_PARTY:
         try:
             m = __import__(name)
@@ -94,6 +103,58 @@ def _check_resources():
     return ok
 
 
+def _check_app_services():
+    """应用服务层：设置持久化 + 本地化。
+
+    策略「存在才检查」：模块尚未落地 → [skip]（不算失败）；落地了但坏掉 → [FAIL]。
+    这样重构期间与最终产物用同一套自检。
+    """
+    ok = True
+
+    # --- 设置持久化 ---
+    try:
+        import _settings
+        p = _settings.path()
+        merged = _settings.all()
+        got = _settings.get("ui.lang")
+        if not isinstance(merged, dict) or got is None:
+            print(f"  [FAIL] _settings 异常：all()={type(merged).__name__} get('ui.lang')={got!r}")
+            ok = False
+        else:
+            print(f"  [ok]   _settings  path={p}")
+            print(f"  [ok]   _settings  ui.lang={got!r}  已知键 {sorted(merged.keys())}")
+    except ImportError:
+        print("  [skip] _settings 未包含在本版本中")
+    except Exception as e:
+        print(f"  [FAIL] _settings -> {type(e).__name__}: {e}")
+        ok = False
+
+    # --- 本地化 ---
+    try:
+        import _i18n
+        langs = [c for c, _ in _i18n.available()]
+        print(f"  [ok]   _i18n 语言包: {langs}")
+        if "zh_CN" not in langs or "en" not in langs:
+            print(f"  [FAIL] _i18n 缺少语言包（需 zh_CN 与 en），实得 {langs}")
+            ok = False
+        else:
+            orig = _i18n.lang()
+            for code in ("zh_CN", "en"):
+                _i18n.set_lang(code)
+                sample = _i18n.t("about.title")
+                if sample == "about.title":
+                    sample = "(无 about.title 词条)"
+                print(f"  [ok]   _i18n {code}: {sample}")
+            _i18n.set_lang(orig)
+    except ImportError:
+        print("  [skip] _i18n 未包含在本版本中")
+    except Exception as e:
+        print(f"  [FAIL] _i18n -> {type(e).__name__}: {e}")
+        ok = False
+
+    return ok
+
+
 def run():
     """返回退出码：0 = 通过。"""
     _applog.install()
@@ -106,7 +167,8 @@ def run():
     results = []
     for title, fn in (("依赖模块", _check_modules),
                       ("第三方依赖", _check_third_party),
-                      ("内置资源", _check_resources)):
+                      ("内置资源", _check_resources),
+                      ("应用服务", _check_app_services)):
         print(f"-- {title} --")
         results.append((title, fn()))
 

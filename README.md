@@ -7,11 +7,11 @@
 
 **Watch AI factions fight live in *Total War: SHOGUN 2* (single-player campaign).**
 
-Three goals, all achieved via **direct memory writes** to the 32-bit process (no DLL injection, no cracking):
+Three goals, all achieved by driving the 32-bit game process from the outside. Most of the work is plain memory read/write; where the engine offers no data-only hook, a small stub is allocated inside the game process and executed (no DLL is injected, nothing about DRM is touched):
 
 1. **Battle autopilot** — the native battle AI fully commands *your* army (same level as allied AI)
 2. **Campaign auto-play** — your faction is fully managed by the campaign AI (34 turns tested)
-3. **AI civil-war spectator** — real-time spectating of AI-vs-AI battles (single-byte `b9` write → engine loads the battle → auto-spectator mode)
+3. **AI civil-war spectator** — real-time spectating of AI-vs-AI battles (single-byte `b9` write → engine loads the battle → auto-spectator mode). The current implementation hooks `FUN_105caa60` and filters *before* that `b9` write; the older external-polling path is still shipped but structurally misses battles.
 
 Docs are primarily in Chinese (`docs/`, `reports/`). Tools are research-grade Python prototypes requiring **admin rights** (memory read/write). See `CONTRIBUTING.md` for deep-dive directions and dev conventions.
 
@@ -59,6 +59,11 @@ python tools\_run_elev.py s2_watch.py --watch
 # ③ 观战 AI 内战：等 AI 势力开战，战斗会被加载出来（战役内运行）
 python tools\_run_elev.py _re_b9_forge.py watch
 # 战斗加载后 = 自动旁观视角；Esc 随时退出
+
+# ③+ 同上的“写 b9 前过滤”实现（A1 = FUN_105caa60 入口 hook，同 tick 100% 捕捉；待实机验收）
+python tools\_run_elev.py s2_spectate.py --type siege --observe 3600
+# 图形界面入口（引擎选择 / 看海捕捉 / 战斗托管 / 日志面板）：
+python tools\_run_elev.py s2_control_gui.py
 ```
 
 > 所有工具均需**管理员权限**（内存读写）。`_run_elev.py` 会弹 UAC；也可直接右键"以管理员身份运行"。
@@ -68,6 +73,9 @@ python tools\_run_elev.py _re_b9_forge.py watch
 
 | 工具 | 作用 | 目标 |
 |---|---|---|
+| `s2_control_gui.py` | **图形界面入口**：引擎选择 / 看海捕捉（类型·规模·阵营过滤）/ 战斗托管 / 日志面板 | ①②③ |
+| `s2_spectate.py` | **写 b9 前过滤的当前实现**（A1 = `FUN_105caa60` 入口 hook）+ 命令行看海捕捉 | ③ |
+| `_run_elev.py` | 提权启动器：弹 UAC 后以管理员权限运行上表中任意工具 | 工具链 |
 | `s2_ai_ctl.py` | 战斗 AI 托管控制台（auto 全托管 / status / watch 补写） | ① |
 | `s2_watch.py` | 看海：faction 直写 + 回合监控（S2/FOTS/ROTS 通用） | ② |
 | `_re_b9_forge.py` | b9 单字节直写 → AI 内战加载+旁观（probe/write/watch 三模式 + 海战过滤） | ③ |
@@ -76,6 +84,12 @@ python tools\_run_elev.py _re_b9_forge.py watch
 | `probe_battle_env.py` | 公共基座：进程锚点/对象定位/读写封装 | 依赖 |
 | `re_b3_inject.py` / `re_h46a.py` / `re_a3_probe.py` / `re_c2_faction.py` | 内部实现库（供上述工具 import） | 依赖 |
 | `re_lib.py` | 静态反汇编分析库（capstone；仅 re_b3_inject 静态模式用） | 依赖 |
+| `s2_autowatch.py` | 看海 → 捕捉玩家参战 → 抢在结算前恢复人控 → 战斗中自动托管 的状态机守护 | ①②③ |
+| `s2_money.py` | 改钱（原版 S2 / FOTS 权威字段已实机确证；仅供单机沙盒） | 辅助 |
+| `s2_ai_cmd.py` | 战斗内命令注入控制台（shellcode；进阶/实验，默认不需要） | ① |
+| `_selftest.py` | 打包产物自检（`--selftest`：依赖 / 内置资源 / 权限，不连游戏） | 工具链 |
+
+> 完整清单（含内部库与依赖闭包）见 `tools/README.md`。
 
 ## 方法论（逆向怎么做的）
 
@@ -110,7 +124,9 @@ python tools\_run_elev.py _re_b9_forge.py watch
 
 ## 深挖方向 / 现有局限性 / 招募同好
 
-本项目前期只有三个目标：**战斗内的看海、战略地图的看海、AI 内战的看海**——现已完成。
+本项目前期只有三个目标：**战斗内的看海、战略地图的看海、AI 内战的看海**——三条机制链都已打通、工具可用。
+
+但要说明白：文档里仍有若干条标注「待实机 / 未验收」（战斗 AI 行为质量、旧引擎 6118/6115 分支、FOTS/ROTS 兼容等），这些是尚未闭环的部分，不算已完成。
 
 
 
@@ -121,7 +137,7 @@ python tools\_run_elev.py _re_b9_forge.py watch
 - **战斗 AI 机制不明朗**：现有 AI 可能在初期行为符合原生 AI，但评估下来存在指挥链断裂的情况。建议先采用战役 AI 战斗捕捉器嫁接，这种情况下调用的是完整的战斗 AI；或采用 battle_ai（官方实际测试用的接口），但战役进攻方中会存在跳出天气 UI 的问题，建议在自定义战斗中使用。
 
 **深挖方向**
-- **b9 捕捉率 100%**：外部轮询结构上 <100%，主推引擎 hook（A1 = FUN_105caa60 入口）
+- **b9 捕捉率 100%**：外部轮询结构上 <100%，主推引擎 hook（A1 = FUN_105caa60 入口）——代码已实装于 `tools/s2_spectate.py`，**待实机验收**
 - **FOTS / ROTS 差异重验**、**战斗筛选管线精进**（规模/类型/海战过滤）
 - **AI战斗行为优化**：枪衾 / 三段击 / 火矢 / 攻门时机等 AI 行为研究
 - **其他游戏机制深挖**：可中场切换派系。

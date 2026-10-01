@@ -535,7 +535,7 @@ CPU 149% = 忙等类型 6 任务完成；battle_mgr 未创建
 | work/re_h47_e1_baseline.py | 无 hook 对照轮询 |
 | work/re_h46a.py | pending 锚定/观测（⚠️ model 锚定有 H44 盲区，见 Goal_3_LogBook P-15） |
 | work/re_lib.py | 静态反汇编（PE 类） |
-| tools/ghidra_bridge/run_analysis.sh | Ghidra 反编译（RVA 参数） |
+| work/ghidra_bridge/run_analysis.sh | Ghidra 反编译（RVA 参数）；该桥脚本在作者私有工作目录，未随本库发布 |
 
 ---
 

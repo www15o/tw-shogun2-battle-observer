@@ -1,0 +1,6 @@
+# 统一用 LF 入库；Windows 检出交给各人 core.autocrlf 决定
+* text=auto eol=lf
+
+# 二进制（本仓库不含任何游戏文件，仅防御性声明）
+*.ico binary
+*.png binary
