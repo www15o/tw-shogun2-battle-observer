@@ -109,7 +109,12 @@ class App:
                        app_zh=_appinfo.APP_NAME_ZH, ver=_appinfo.APP_VERSION))
         # ★设置恢复：窗口几何来自 ui.geometry（非法值由 _geometry_restore 回退默认）
         root.geometry(self._geometry_restore())
-        root.minsize(1240, 690)  # ★2026-10-01 最小尺寸改为「内容所需」的下界（旧值 900x600 会截断控件；新增 battle_ai 警示行后内容高 666）
+        # ★2026-10-01 修：原来卡 1240x690 —— 而真实需求只有 895x687，等于凭空禁掉了低分辨率
+        #   （1280x720 屏减去标题栏/任务栏约 680 可用高，进不去）。现按内容下界放宽，
+        #   并把树/日志框默认高度 8→6，使内容需求降到 ~620，720p 及 1024x640 都能开。
+        #   ★下界不再写死：末尾按「内容真实需求」设置（写死过 900，而 ops 实际需要 927 宽，
+        #     结果低尺寸下问号列被挤出窗口 —— 由 _release/gui_layout_probe.py 抓到）。
+        root.minsize(900, 600)   # 临时下界，__init__ 末尾会按真实需求改写
         root.protocol("WM_DELETE_WINDOW", self._on_close)   # ★关窗统一保存设置   # ★2026-08-19 最小尺寸（缩放不截断控件）
         self.h = None
         self.base = None
@@ -166,7 +171,7 @@ class App:
         self.ic_col_help = _help_icon(_hint, "tip.columns", wraplength=520)
         self.ic_col_help.pack(side=tk.RIGHT, padx=(4, 2))
         cols = ("name", "religion", "human", "treasury", "wl", "bl")
-        self.tree = ttk.Treeview(mid, columns=cols, show="headings", height=8,
+        self.tree = ttk.Treeview(mid, columns=cols, show="headings", height=5,
                                  selectmode="extended")   # ★多选（批量白/黑名单）
         self.tree.heading("name", text=_t("ui.col.faction"))
         self.tree.heading("religion", text=_t("ui.col.religion"))
@@ -336,14 +341,35 @@ class App:
         self.ic_map_help = _help_icon(ops, "tip.minimap", wraplength=520)
         self.ic_map_help.grid(row=10, column=15, sticky=tk.E, padx=(6, 2))
 
+        # ★统一左对齐：tk 的 grid 默认把控件**居中**在单元格里，导致同一列在不同行左边缘不一致
+        #   （实测 row4 的复选框 x=149、row5 的「总≥」x=196、row10 的按钮 x=125，而其余行是 129）。
+        #   这里只给「没显式 sticky」的控件补 sticky=W；刻意写了 E/WE 的（如「总≥」右对齐、问号 sticky=E）保持不动。
+        for _w in ops.winfo_children():
+            try:
+                _gi = _w.grid_info()
+            except Exception:
+                continue
+            if not _gi:
+                continue
+            if int(_gi.get("column", 0)) >= 15:
+                continue                      # 问号列：保持 sticky=E + 自己的 padx
+            # 补 sticky=W；并把 padx 统一成 (0, 8)，否则同列控件因各自的 padx 差 4~8px
+            _w.grid_configure(sticky=(str(_gi.get("sticky", "")).strip() or tk.W), padx=(0, 8))
+
         # --- 日志 ---
-        self.logbox = scrolledtext.ScrolledText(root, height=8, state="disabled",
+        self.logbox = scrolledtext.ScrolledText(root, height=5, state="disabled",
                                                 font=("Consolas", 9))
         self.logbox.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
         # 统一日志：面板订阅 _applog —— 工具链的 print() 也会经此显示
         # （打包后 console=False 没有 stdout，不订阅就全丢）
         _applog.subscribe(self._append_log)
+
+        # ★最小窗口按「内容真实需求」定，不写死数字：
+        #   写死 1240x690 → 1280x720 屏进不去（可用高约 680）；写死 900 → ops 实际要 927 宽，问号列被挤出窗口。
+        root.update_idletasks()
+        root.minsize(max(900, root.winfo_reqwidth() + 4),
+                     max(560, root.winfo_reqheight() + 4))
 
     # ---------- 工具 ----------
     def _append_log(self, line):
